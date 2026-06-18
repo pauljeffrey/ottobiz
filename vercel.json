@@ -3,5 +3,6 @@
   "framework": "nextjs",
   "installCommand": "npm ci --prefix frontend --legacy-peer-deps",
   "buildCommand": "npm run build --prefix frontend",
-  "devCommand": "npm run dev --prefix frontend"
+  "devCommand": "npm run dev --prefix frontend",
+  "outputDirectory": "frontend/.next"
 }

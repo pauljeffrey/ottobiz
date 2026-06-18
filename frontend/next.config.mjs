@@ -11,14 +11,13 @@ const backendTarget = (
 ).replace(/\/$/, "")
 
 const nextConfig = {
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
   typescript: {
     ignoreBuildErrors: true,
   },
   images: {
-    domains: ["localhost"],
+    remotePatterns: [
+      { protocol: "http", hostname: "localhost" },
+    ],
     unoptimized: true,
   },
   async rewrites() {
