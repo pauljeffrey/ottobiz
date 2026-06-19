@@ -6,8 +6,8 @@ import "./globals.css"
 const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
-  title: "A-Health - AI Healthcare Assistant",
-  description: "Advanced AI-powered healthcare assistant for medical consultations and health management",
+  title: "Ottobiz - Automated Business Platform",
+  description: "AI-powered automated business platform for customers, businesses, and logistics",
 }
 
 export default function RootLayout({
