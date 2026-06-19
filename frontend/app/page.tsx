@@ -35,7 +35,7 @@ import {
 const TRANSPARENCY_POLL_MS = 4000
 // All API calls go through API_BASE (= NEXT_PUBLIC_BACKEND_URL or the same-origin /backend proxy).
 // Never use process.env.BACKEND_URL here — it is a server-side variable and is always undefined
-// in this client component, causing every fetch to fall back to http://localhost:8000.
+// in this client component, causing every fetch to use an empty/wrong base URL.
 
 /** Stable placeholder time for welcome rows — avoids SSR/client `Date` hydration mismatches. */
 const STATIC_WELCOME_TS = new Date("2000-01-01T12:00:00.000Z")

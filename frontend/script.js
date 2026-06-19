@@ -1,6 +1,6 @@
 class AHealthApp {
   constructor() {
-    this.apiBaseUrl = "http://localhost:8000/api/v1"
+    this.apiBaseUrl = window.__BACKEND_URL__ ? `${window.__BACKEND_URL__}/api/v1` : ""
     this.currentUser = null
     this.chatHistory = []
     this.notifications = []

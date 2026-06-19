@@ -58,7 +58,7 @@ AWS_S3_BUCKET = os.getenv("AWS_S3_BUCKET", "")
 AWS_S3_REGION = os.getenv("AWS_S3_REGION", "us-east-1")
 AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", "")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "")
-BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
+BASE_URL = os.getenv("BASE_URL", "")  # Required for webhook callbacks and file download links
 
 # Chat & context management
 CHAT_HISTORY_SUMMARY_WORD_LIMIT = int(os.getenv("CHAT_HISTORY_SUMMARY_WORD_LIMIT", "2048"))

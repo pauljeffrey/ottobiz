@@ -4,8 +4,19 @@ export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData()
 
-    // Get the backend URL from environment variables
-    const backendUrl = process.env.BACKEND_URL || "http://localhost:8000"
+    // Get the backend URL from environment variables — no fallback, must be explicitly configured
+    const backendUrl = (
+      process.env.BACKEND_URL ||
+      process.env.NEXT_PUBLIC_BACKEND_URL ||
+      ""
+    ).replace(/\/$/, "")
+
+    if (!backendUrl) {
+      return NextResponse.json(
+        { error: "Backend URL is not configured. Set BACKEND_URL or NEXT_PUBLIC_BACKEND_URL." },
+        { status: 503 }
+      )
+    }
 
     // Forward the request to your Python backend
     const response = await fetch(`${backendUrl}/chat`, {
