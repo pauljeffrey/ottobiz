@@ -4,7 +4,7 @@ export async function GET() {
   const backendUrl = (
     process.env.BACKEND_URL ||
     process.env.NEXT_PUBLIC_BACKEND_URL ||
-    ""
+    "https://ottobiz-backend-zg2fve-56544e-212-47-72-183.sslip.io"
   ).replace(/\/$/, "")
 
   let probeStatus: string

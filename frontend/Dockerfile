@@ -13,12 +13,11 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# BACKEND_URL is consumed at build time by next.config.mjs for rewrites.
-# Pass it in with --build-arg or via the compose build.args block.
-ARG BACKEND_URL=http://localhost:8000
+# Both vars MUST be passed as Build Arguments in Dokploy.
+# No localhost fallbacks — if missing, next.config.mjs will warn and skip the rewrite.
+ARG BACKEND_URL=
 ENV BACKEND_URL=$BACKEND_URL
 
-# NEXT_PUBLIC_* vars must be present at build time to be baked into the bundle.
 ARG NEXT_PUBLIC_BACKEND_URL=
 ENV NEXT_PUBLIC_BACKEND_URL=$NEXT_PUBLIC_BACKEND_URL
 
@@ -31,6 +30,9 @@ WORKDIR /app
 ENV NODE_ENV=production
 # next start respects PORT; default 3000
 ENV PORT=3000
+# Placeholder — override with the real backend URL via Dokploy Environment Variables.
+# layout.tsx reads this at runtime on every request to inject window.__BACKEND_URL__.
+ENV BACKEND_URL=
 
 RUN addgroup --system --gid 1001 nodejs \
  && adduser  --system --uid 1001 nextjs

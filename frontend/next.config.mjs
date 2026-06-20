@@ -6,7 +6,7 @@
 const backendTarget = (
   process.env.NEXT_PUBLIC_BACKEND_URL ||
   process.env.BACKEND_URL ||
-  ""
+  "https://ottobiz-backend-zg2fve-56544e-212-47-72-183.sslip.io"
 ).replace(/\/$/, "")
 
 if (!backendTarget) {

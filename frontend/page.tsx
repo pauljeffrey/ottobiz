@@ -24,8 +24,7 @@ import {
   Volume2,
 } from "lucide-react"
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://a-health.onrender.com"
-
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://ottobiz-backend-zg2fve-56544e-212-47-72-183.sslip.io"
 interface ChatMessage {
   id: string
   content: string
@@ -437,9 +436,9 @@ export default function Page() {
               </div>
               <div>
                 <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                  A-Health
+                  Ottobiz
                 </h1>
-                <p className="text-sm text-gray-600">AI Healthcare Assistant</p>
+                <p className="text-sm text-gray-600">AI Automated Business Platform</p>
               </div>
             </div>
             <div className="flex items-center space-x-4">

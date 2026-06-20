@@ -6,9 +6,7 @@ export async function POST(request: NextRequest) {
 
     // Get the backend URL from environment variables — no fallback, must be explicitly configured
     const backendUrl = (
-      process.env.BACKEND_URL ||
-      process.env.NEXT_PUBLIC_BACKEND_URL ||
-      ""
+      process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "https://ottobiz-backend-zg2fve-56544e-212-47-72-183.sslip.io"
     ).replace(/\/$/, "")
 
     if (!backendUrl) {
