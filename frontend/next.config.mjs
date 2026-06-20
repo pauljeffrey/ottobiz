@@ -1,19 +1,20 @@
 /** @type {import('next').NextConfig} */
 
-// NEXT_PUBLIC_BACKEND_URL is inlined into the JS bundle at build time by Next.js.
-// BACKEND_URL is a server-side-only variable used here as a fallback for the rewrite proxy.
-// At least one of these must be set in production — the app will not proxy correctly without them.
+// NEXT_PUBLIC_BACKEND_URL — baked into the JS bundle at build time; used directly by the browser.
+// BACKEND_URL            — server-side only; sets the /backend rewrite proxy target at build time.
+// For local Docker:  pass BACKEND_URL=http://backend:8000 as a build arg (proxy approach).
+// For production:    pass NEXT_PUBLIC_BACKEND_URL=https://your-backend.com as a build arg.
 const backendTarget = (
   process.env.NEXT_PUBLIC_BACKEND_URL ||
   process.env.BACKEND_URL ||
-  "https://ottobiz-backend-zg2fve-56544e-212-47-72-183.sslip.io"
+  ""
 ).replace(/\/$/, "")
 
 if (!backendTarget) {
   console.error(
     "ERROR: Neither NEXT_PUBLIC_BACKEND_URL nor BACKEND_URL is set. " +
     "The /backend rewrite proxy will be inactive. " +
-    "Set one of these environment variables before building or starting the server."
+    "Set one of these environment variables before building."
   )
 }
 

@@ -9,6 +9,11 @@ import {
   type SessionOrderRow,
 } from "@/lib/use-transparency-panels"
 import {
+  CURRENCIES,
+  type CurrencyCode,
+  formatAmount,
+} from "@/lib/currency"
+import {
   Send,
   Mic,
   MicOff,
@@ -30,6 +35,7 @@ import {
   ChevronDown,
   ChevronRight,
   RefreshCw,
+  Coins,
 } from "lucide-react"
 
 const TRANSPARENCY_POLL_MS = 4000
@@ -159,6 +165,17 @@ export default function Page() {
   const [logisticsSessionId, setLogisticsSessionId] = useState("")
 
   const [apiKey, setApiKey] = useState("")
+
+  const [selectedCurrency, setSelectedCurrency] = useState<CurrencyCode>("NGN")
+
+  useEffect(() => {
+    const saved = localStorage.getItem("ottobiz_currency") as CurrencyCode | null
+    if (saved && CURRENCIES.some((c) => c.code === saved)) setSelectedCurrency(saved)
+  }, [])
+
+  useEffect(() => {
+    localStorage.setItem("ottobiz_currency", selectedCurrency)
+  }, [selectedCurrency])
 
   const [sbInventoryActivityOpen, setSbInventoryActivityOpen] = useState(true)
 
@@ -684,7 +701,7 @@ export default function Page() {
                 <p className="text-sm text-gray-600">Automated Business Platform</p>
               </div>
             </div>
-            <div className="flex items-center space-x-4">
+            <div className="flex items-center gap-2 flex-wrap justify-end">
               <button
                 type="button"
                 onClick={handleClearRedisSession}
@@ -694,7 +711,25 @@ export default function Page() {
                 <RotateCcw className="w-4 h-4" />
                 Clear Redis session
               </button>
-              <div className="bg-white rounded-lg p-3 border border-gray-200">
+
+              {/* Currency selector */}
+              <div className="bg-white rounded-lg px-2 py-2 border border-gray-200 flex items-center gap-1.5">
+                <Coins className="w-4 h-4 text-gray-500 shrink-0" />
+                <select
+                  value={selectedCurrency}
+                  onChange={(e) => setSelectedCurrency(e.target.value as CurrencyCode)}
+                  className="text-sm border-none outline-none bg-transparent cursor-pointer pr-1"
+                  title="Select display currency — prices are converted client-side"
+                >
+                  {CURRENCIES.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.symbol} {c.code} — {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="bg-white rounded-lg p-2 border border-gray-200">
                 <div className="flex items-center space-x-2">
                   <Key className="w-4 h-4 text-gray-500" />
                   <input
@@ -1094,7 +1129,7 @@ export default function Page() {
                                 {p.name ?? "—"}
                               </td>
                               <td className="py-1 pr-1 whitespace-nowrap">
-                                {p.currency ?? ""} {Number(p.price).toFixed(2)}
+                                {formatAmount(p.price, p.currency, selectedCurrency)}
                               </td>
                               <td className="py-1">{p.stock_quantity}</td>
                             </tr>
@@ -1157,7 +1192,7 @@ export default function Page() {
                               ) : null}
                               <div className="mt-0.5 text-gray-700">
                                 <span className="text-gray-500">total</span>{" "}
-                                {ord.total_amount != null ? Number(ord.total_amount).toFixed(2) : "—"}
+                                {ord.total_amount != null ? formatAmount(ord.total_amount, "NGN", selectedCurrency) : "—"}
                                 {qty ? (
                                   <>
                                     {" "}
@@ -1226,9 +1261,10 @@ export default function Page() {
                                 {p.name ?? p.id ?? "—"}
                               </div>
                               <div className="text-gray-500">
-                                {p.currency ?? ""}{" "}
-                                {p.price != null && Number(p.price) > 0 ? Number(p.price).toFixed(2) : "—"} · stock{" "}
-                                {p.stock_quantity ?? "—"}
+                                {p.price != null && Number(p.price) > 0
+                                  ? formatAmount(p.price, p.currency, selectedCurrency)
+                                  : "—"}{" "}
+                                · stock {p.stock_quantity ?? "—"}
                               </div>
                             </li>
                           ))}
@@ -1367,14 +1403,14 @@ export default function Page() {
                                 <div className="font-medium mt-0.5">{ev.name ?? ev.product_id ?? "—"}</div>
                                 <div className="text-gray-600 mt-0.5">
                                   {ev.kind === "add"
-                                    ? `${ev.currency ?? ""} ${ev.price != null ? Number(ev.price).toFixed(2) : "—"} · Qty ${ev.stock_quantity ?? "—"}`
+                                    ? `${ev.price != null ? formatAmount(ev.price, ev.currency, selectedCurrency) : "—"} · Qty ${ev.stock_quantity ?? "—"}`
                                     : ev.kind === "price"
-                                      ? `Price ${ev.currency ?? ""} ${ev.price != null ? Number(ev.price).toFixed(2) : "—"}`
+                                      ? `Price ${ev.price != null ? formatAmount(ev.price, ev.currency, selectedCurrency) : "—"}`
                                       : ev.kind === "stock"
                                         ? `Stock qty ${ev.stock_quantity ?? "—"}`
                                         : [
                                             ev.price != null
-                                              ? `${ev.currency ?? ""} ${Number(ev.price).toFixed(2)}`
+                                              ? formatAmount(ev.price, ev.currency, selectedCurrency)
                                               : null,
                                             ev.stock_quantity != null ? `Qty ${ev.stock_quantity}` : null,
                                           ]

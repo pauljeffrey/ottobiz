@@ -30,9 +30,6 @@ WORKDIR /app
 ENV NODE_ENV=production
 # next start respects PORT; default 3000
 ENV PORT=3000
-# Placeholder — override with the real backend URL via Dokploy Environment Variables.
-# layout.tsx reads this at runtime on every request to inject window.__BACKEND_URL__.
-ENV BACKEND_URL=
 
 RUN addgroup --system --gid 1001 nodejs \
  && adduser  --system --uid 1001 nextjs

@@ -1,22 +1,4 @@
 services:
-  frontend:
-    build:
-      context: ../frontend
-      dockerfile: Dockerfile
-      args:
-        # Server-side rewrite target — internal Docker network name
-        BACKEND_URL: http://backend:8000
-        # Leave empty so the browser uses /backend proxy (avoids CORS)
-        NEXT_PUBLIC_BACKEND_URL: ""
-    container_name: ottobiz-frontend
-    restart: always
-    ports:
-      - "3000:3000"
-    depends_on:
-      - backend
-    environment:
-      - PORT=3000
-
   backend:
     # Local-only name; not on Docker Hub — avoid "pull access denied" on compose up
     image: ottobiz:latest
