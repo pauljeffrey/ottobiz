@@ -1,411 +1,179 @@
 # Ottobiz
 
-**Ottobiz** is an AI-powered business automation platform that simulates and orchestrates the full commercial lifecycle—from product discovery and payment verification through multi-party logistics coordination, inventory updates, and post-purchase support. A FastAPI backend coordinates specialized LLM agents over Redis session state and PostgreSQL; a Next.js demo frontend exposes three live chat panes (customer, business, logistics) with real-time transparency into catalog, orders, and agent processes.
+**Ottobiz is an AI-powered (agentic) business assistant for small and medium businesses.** It helps run the full journey from a customer asking about a product, to payment, to delivery, to follow-up support, with separate AI agents handling each part of the job, and a live demo UI where you can watch it all happen.
+
+Think of it as a digital operations team: a shop assistant talks to customers, a manager handles the store, a dispatcher coordinates delivery, and a coordinator makes sure everyone stays in sync.
 
 ---
 
-## GitHub description (short)
+## GitHub description
 
-> Multi-agent AI platform for SMB commerce: customer sales, vendor ops, logistics coordination, Paystack payments, inventory, and a live three-pane demo UI with session transparency.
-
----
-
-## Table of contents
-
-- [Why Ottobiz](#why-ottobiz)
-- [Decision & idea choices](#decision--idea-choices)
-- [Architectural choices](#architectural-choices)
-- [Multi-agent orchestration](#multi-agent-orchestration)
-- [Engineering bottlenecks](#engineering-bottlenecks)
-- [Trade-offs](#trade-offs)
-- [Evaluation](#evaluation)
-- [Edge cases](#edge-cases)
-- [Tech stack](#tech-stack)
-- [Project structure](#project-structure)
-- [Getting started](#getting-started)
-- [Deployment](#deployment)
-- [Documentation](#documentation)
+> AI platform that automates customer sales, vendor operations, and logistics — powered by specialized agents and a live three-pane demo UI.
 
 ---
 
-## Why Ottobiz
+## What the platform does
 
-Small and medium businesses often run sales, fulfillment, and support across WhatsApp, bank transfers, spreadsheets, and ad-hoc courier arrangements. Ottobiz explores how **specialized AI agents**—not a single monolithic chatbot—can automate that workflow while keeping humans in the loop for vendor and logistics decisions.
+Many businesses sell through chat (WhatsApp, DMs, website) while managing stock, payments, and couriers separately. Ottobiz brings those pieces together:
 
-The demo frontend is deliberately **transparent**: operators can watch catalog refreshes, active orders, discussed products, and inventory activity while three agents converse, making the system auditable during development and stakeholder demos.
+1. **A customer** asks about products, places an order, pays, and tracks delivery.
+2. **A vendor (business)** manages inventory, confirms payments, and prepares orders.
+3. **A logistics partner** picks up and delivers.
+
+Each party has their own chat. AI agents read and respond on their behalf, pass messages between parties when needed, and update the database (products, orders, stock) along the way.
+
+The **demo frontend** lets you play all three roles at once: pick a customer persona and a business, chat in three panes side by side, and watch the catalog, active orders, and inventory update in real time.
 
 ---
 
+## The AI agents
+
+Ottobiz uses **many focused agents** instead of one generic chatbot. Each agent has a clear job.
+
+| Agent | Role |
+|-------|------|
+| **Conversational agent** | The main shop assistant customers talk to. Understands intent and delegates to specialists. |
+| **Product agent** | Finds products, checks stock and prices, shares payment details, notifies the vendor. |
+| **Payment verification agent** | Confirms bank transfers or Paystack payments (including receipt uploads). |
+| **Central agent** | The coordinator. Routes messages between customer, vendor, and logistics; creates orders after payment is confirmed; drives the deal forward. |
+| **Business chat agent** | Helps vendors with day-to-day ops (analytics, inventory) or relays replies back through the central agent when coordinating with customers. |
+| **Logistics agent** | Handles delivery questions and hands off to the central agent for multi-party coordination. |
+| **Customer complaint agent** | Handles issues calmly and escalates to the vendor when needed. |
+| **Upselling agent** | Suggests alternatives when something is out of stock. |
+| **Marketing agent** | Recommends related products after a purchase. |
+
+**How they work together:** The customer talks to the conversational agent. When something specific is needed (payment check, delivery, complaint), a specialist steps in. When the vendor or logistics company must be involved, the **central agent** takes over — it is the only agent that freely moves messages across all three sides.
+
+**Important rules the system enforces:**
+- Orders are not created until payment is verified.
+- Logistics is not contacted until the vendor is ready.
+- Vendor inventory changes only happen when the vendor clearly approves them.
+
+---
 ## Decision & idea choices
 
-| Choice | Rationale |
-|--------|-----------|
-| **Multi-agent over one mega-prompt** | Sales, payment proof, complaints, upselling, and logistics have different guardrails and tools. Splitting agents reduces prompt bloat and makes failures easier to isolate. |
-| **Central agent as coordination hub** | Customer-facing specialists handle intent; a **Central Agent** owns cross-party routing (customer ↔ vendor ↔ logistics), order creation after payment gates, and structured process updates. |
-| **Redis for session, Postgres for records** | Chat turns, product caches, open **processes**, and inbox queues need low-latency read/write. Orders, catalog rows, Paystack events, and chat summaries belong in durable storage. |
-| **Process-centric journeys** | Each enquiry or purchase is tracked as a `process_id` with `task_type`, product name, order linkage, and completion state—so multi-turn flows do not collapse into undifferentiated chat history. |
-| **Inbox queues between parties** | Vendor and logistics UIs poll `inbox:{party_id}` instead of sharing one chat thread, mirroring how real businesses use separate channels. |
-| **Pydantic AI (from LangChain-era design)** | Structured tool calls, typed dependencies, and provider-agnostic models (OpenAI, Gemini, Anthropic) with Logfire instrumentation for observability. |
-| **Demo-first frontend** | Three chat panes + live side panels validate backend behavior without requiring WhatsApp or production traffic. Currency conversion runs client-side for international demos. |
-| **Tiered product vision (Free / Gold / Platinum)** | Feature flags (logistics, upselling, analytics) map to commercial tiers; `DEBUG=true` bypasses restrictions during development. |
-| **Paystack per-vendor keys** | Each business stores its own Paystack credentials; webhooks and verification tie charges back to `{user_id}:{vendor_id}` Redis state. |
+- **Specialist agents, not one mega-bot** — Sales, payments, complaints, and logistics need different rules. Splitting agents keeps behavior predictable and easier to improve.
+- **A central coordinator** — Cross-party messaging (customer ↔ vendor ↔ logistics) goes through one agent so nothing falls through the cracks.
+- **Separate inboxes per party** — Vendors and couriers do not share the customer's chat thread; they get their own messages, like in real life.
+- **Live demo UI** — Built to show stakeholders how the backend behaves, not just to chat in isolation.
+- **Payments via Paystack** — Each business can use its own Paystack account; webhooks confirm payment even if the customer leaves chat to pay (still under development).
+- **Tiered product vision** — Free, Gold, and Platinum tiers gate features like logistics and analytics for a future commercial product.
 
 ---
 
 ## Architectural choices
 
-### High-level system
+| Layer | What it does |
+|-------|----------------|
+| **Frontend** (Next.js) | Three chat panes, persona picker, live catalog/orders/inventory panels, currency selector, reports |
+| **Backend** (FastAPI) | Chat APIs, agent orchestration, analytics, inventory, payments |
+| **Database** (PostgreSQL) | Products, orders, businesses, payment records, chat summaries |
+| **Session store** (Redis) | Active conversations, open orders-in-progress, message inboxes |
+| **LLM layer** | Agents with structured tools; supports OpenAI, Gemini, or Anthropic |
 
-```mermaid
-flowchart TB
-  subgraph clients [Clients]
-    FE[Next.js demo UI]
-    WA[WhatsApp webhook]
-  end
+**Deployment:** Backend + database on Docker; frontend on Vercel.
 
-  subgraph api [FastAPI]
-    CUST[/customer/chat]
-    BIZ[/business/chat]
-    LOG[/logistics/chat]
-    SESS[/session/* transparency APIs]
-  end
-
-  subgraph agents [Agent layer]
-    CONV[Conversational agent]
-    SPEC[Specialists: product, payment, logistics, complaint, upsell, marketing]
-    CENT[Central agent]
-    BCHAT[Business chat agent]
-  end
-
-  subgraph data [Data layer]
-    REDIS[(Redis session + inbox)]
-    PG[(PostgreSQL)]
-  end
-
-  FE --> api
-  WA --> api
-  CUST --> CONV
-  CONV --> SPEC
-  SPEC --> CENT
-  BIZ --> BCHAT
-  BCHAT --> CENT
-  LOG --> BCHAT
-  CONV --> REDIS
-  CENT --> REDIS
-  CENT --> PG
-  SPEC --> PG
-  SESS --> REDIS
-  SESS --> PG
-```
-
-### Session keys (Redis)
-
-| Key pattern | Purpose |
-|-------------|---------|
-| `{user_id}:{vendor_id}` | Full customer session: chat history, products cache, processes, uploads |
-| `{vendor_id}` or `{logistic_id}` | Business/logistics party chat and coordination context |
-| `inbox:{recipient_id}` | Pending messages for polling UIs |
-| `paystack_ref:{reference}` | Short-lived checkout correlation for webhooks |
-
-### Backend layout
-
-- **`app/main.py`** — FastAPI app, CORS, lifecycle (DB init, seed), router registration.
-- **`app/backend/chatbot/agents/`** — Specialist and central agents built on `BaseAgent`.
-- **`app/backend/chatbot/interface/`** — Customer and business chat entrypoints (orchestration, summarization, file handling).
-- **`app/backend/api/routers/`** — REST APIs for chat, session transparency, analytics, inventory, supply chain, payments.
-- **`app/backend/db/`** — SQL migrations, schemas, cache utilities, population scripts.
-
-### Frontend layout
-
-- **`frontend/app/page.tsx`** — Single-page workspace: persona selectors, three chat panes, transparency panels, Reports tab, How to Use guide.
-- **`frontend/lib/use-transparency-panels.ts`** — Polling hooks for catalog, orders, agent context, inventory activity.
-- **`frontend/lib/currency.ts`** — Client-side FX display for demo audiences (NGN, USD, CAD, AUD, GBP, EUR, ZAR).
-- **`frontend/lib/api-base.ts`** — Resolves `NEXT_PUBLIC_BACKEND_URL` or same-origin `/backend` proxy.
-
-### Deployment topology
-
-| Component | Typical target |
-|-----------|----------------|
-| Backend + Postgres + Redis | Dokploy / Docker Compose on VPS |
-| Frontend | Vercel (Root Directory: `frontend/`) |
-| Object storage (receipts/media) | Cloudflare R2 (optional) |
-| Observability | Logfire (optional) |
-
-Detailed backend flow: [`app/backend/readme/architectural_workflow.md`](app/backend/readme/architectural_workflow.md).
+For deeper technical flow, see [`app/backend/readme/architectural_workflow.md`](app/backend/readme/architectural_workflow.md).
 
 ---
 
-## Multi-agent orchestration
+## Multi-agent orchestration (in plain terms)
 
-Ottobiz uses a **hub-and-spoke** pattern: customer-facing orchestration delegates to specialists; specialists escalate to the **Central Agent** when multiple parties must act.
+1. **Customer sends a message** → conversational agent responds or calls a specialist.
+2. **Specialist finishes its task** → if another party must act, it notifies the central agent.
+3. **Central agent decides** who goes next (customer, vendor, or logistics), updates order/process state, and sends the message.
+4. **Vendor or logistics replies** in their own chat → business agent either handles it directly (e.g. "show my inventory") or forwards it to the central agent for coordination.
+5. **Customer sees a polished reply** — long internal reasoning is never dumped on the shopper.
 
-### Customer channel
-
-1. **POST `/api/v1/customer/chat`** → `user_chat_interface.chat()`
-2. Load `{user_id}:{vendor_id}` from Redis; optionally process uploads (receipts, images).
-3. Summarize chat history when word limits are exceeded; persist summaries to Postgres.
-4. **`run_conversational_agent`** — primary store associate; chooses tools that invoke:
-   - **Product agent** — catalog search, payment links, vendor notify
-   - **Payment verification agent** — receipt / reference checks → `notify_central_payment_confirmed`
-   - **Logistics agent** — delivery context → central handoff
-   - **Customer complaint agent** — de-escalation and escalation
-   - **Upselling / ads-marketing agents** — alternates and post-purchase suggestions
-
-### Central agent loop
-
-The Central Agent implements a **three-step execution loop** (audit → tool execution → strategic routing):
-
-1. **Status audit** — Read `finished_tasks`, process history, payment state.
-2. **Tool execution** — `create_order`, `mutate_vendor_catalog`, `update_process`, Paystack-aware payment checks, logistics context.
-3. **Strategic routing** — Emit structured output: `recipient`, `message`, `next_step`, `reasoning`.
-
-**Hard guardrails** (enforced in prompts and tools):
-
-- No order creation or logistics dispatch until payment is verified.
-- Vendor catalog mutations only after explicit vendor authorization.
-- Customer-facing copy is **polished** (short, chat-native) before delivery.
-- Processes marked **completed** when delivery objectives are met.
-
-### Business & logistics channel
-
-1. **POST `/api/v1/business/chat`** or **`/api/v1/logistics/chat`**
-2. **`business_chat_agent`** operates in two modes:
-   - **Mode 1 — Direct ops:** analytics, inventory reads, `mutate_vendor_catalog` for the vendor’s own store.
-   - **Mode 2 — Coordination:** when replying to a customer/process thread, set `for_central_agent=True` and pass `ReplyContext` (`customer_id`, `process_id`, `vendor_id`) into **`run_central_agent`**.
-
-### Cross-party message flow
-
-```
-Customer message
-  → Conversational agent → (optional) Specialist
-    → Central agent
-      → inbox:vendor_id / inbox:logistic_id / customer pair history
-        → Business or Logistics chat
-          → Central agent → Customer (polished)
-```
-
-WhatsApp ingress reuses the same interfaces via `backend/whatsapp/routers.py`.
+This hub-and-spoke design keeps customer-facing chat friendly while still automating the messy back-and-forth between business and delivery partners.
 
 ---
 
 ## Engineering bottlenecks
 
-These are the constraints that shaped the design and remain active areas for hardening.
-
-| Bottleneck | Impact | Mitigation in codebase / ops |
-|------------|--------|------------------------------|
-| **LLM latency & cost** | Each turn may chain conversational → specialist → central → polish (multiple model calls). | Summarization caps history size; product cache TTL reduces repeated DB reads; tier gating limits agent surface area. |
-| **Redis as hot session store** | Last-write-wins on `{user_id}:{vendor_id}` under concurrent requests; no transactions. | Critical payment/order facts persisted to Postgres; Paystack webhook idempotency table; reconciliation script. |
-| **Process ambiguity** | Multiple open processes for the same product can mis-route handoffs. | Explicit `process_id` on central handoffs; `order_process_links` migration. |
-| **Catalog cache vs DB** | Stale prices/stock in session cache vs live inventory. | TTL eviction; specialists refetch before purchase; vendor `mutate_vendor_catalog` syncs DB. |
-| **Payment race conditions** | Money captured in Paystack before `create_order` succeeds (or the reverse). | Webhook + in-chat verification paths; `paystack_webhook_events`; documented in [`paystack_flow.md`](app/backend/readme/paystack_flow.md). |
-| **Environment-sensitive Redis client** | `DEBUG=true` uses host/port/password; production uses `REDIS_URL`. Misconfiguration causes auth errors in deployment. | Document exact env vars; align Redis `--requirepass` with `REDIS_URL`. |
-| **Frontend static build + API URL** | `NEXT_PUBLIC_*` is build-time; wrong values bake in wrong backend targets. | Explicit env configuration on Vercel/Dokploy; optional `/backend` rewrite proxy. |
-| **OpenAI quota / model availability** | Production 429 errors surface as HTTP 500 to the UI. | Monitor provider billing; configure `MODEL_NAME` + keys per environment. |
-
-Expanded failure-mode analysis: [`app/backend/readme/journey_risks_and_hardening.md`](app/backend/readme/journey_risks_and_hardening.md).
+| Challenge | Why it matters |
+|-----------|----------------|
+| **Multiple AI calls per message** | Rich behavior costs time and API credits; chat history is summarized to stay within limits. |
+| **Session state in memory (Redis)** | Fast for live chat, but concurrent updates can clash; critical data (orders, payments) is saved to the database. |
+| **Payment timing** | Customer may pay before the system creates an order; webhooks and receipt checks cover both paths. |
+| **Stale product info** | Prices shown earlier may change; agents re-check stock before confirming a sale. |
 
 ---
 
 ## Trade-offs
 
-| We optimized for | We accepted |
-|------------------|-------------|
-| **Demonstrable multi-party flows** | Higher per-message latency vs a single LLM call |
-| **Prompt-level business rules** (payment gates, routing) | Occasional model non-compliance; mitigated by tools and structured outputs |
-| **Fast iteration on agent behavior** | Redis session as source of truth during active chats—not full event sourcing |
-| **Provider flexibility** (OpenAI, Gemini, Anthropic) | Operational complexity tuning prompts per model family |
-| **Rich demo UI** | Polling-based transparency panels (~3–4s refresh) rather than WebSockets |
-| **Client-side currency conversion** | Approximate FX rates for display only; backend/DB remain authoritative in vendor currency |
-| **Monorepo with separate deploy targets** | Two deployment surfaces (Vercel frontend, Docker backend) and env var discipline |
-| **WhatsApp + web parity** | Shared interfaces increase coupling; WhatsApp-specific edge cases need separate testing |
+| Chose | Gave up |
+|-------|---------|
+| Realistic multi-party automation | Slower replies than a single simple chatbot |
+| Visible demo (catalog, orders, agents) | UI refreshes on a timer instead of instant push updates |
+| Flexible AI providers | More setup per environment |
+| Strong business rules in agents | Occasional model mistakes; guarded by tools and checks |
+| Client-side currency display for demos | Display rates are approximate, not live forex |
 
 ---
 
 ## Evaluation
 
-Ottobiz includes multiple evaluation layers—from routing smoke tests to full multi-party AI scenarios judged by an LLM.
+Quality is tested in several ways:
 
-### 1. Gold questions (routing smoke)
-
-[`app/backend/scripts/gold_questions.json`](app/backend/scripts/gold_questions.json) — curated inputs per agent (product inquiry, purchase intent, bank transfer notification, delivery tracking, complaints) for manual or scripted routing checks.
-
-### 2. Conversation test scaffolding
-
-[`app/backend/tests/test_eval/test_conversations.py`](app/backend/tests/test_eval/test_conversations.py) — structured scenarios for customer–vendor and vendor–logistics flows, including edge-case placeholders (ambiguous product names, payment without order, concurrent conversations).
-
-### 3. AI E2E harness (primary)
-
-[`app/backend/tests/ai_tests/`](app/backend/tests/ai_tests/) — parametrized end-to-end tests against a **live API**:
-
-- **Scenarios** (`scenarios.py`): product availability, payment with PDF receipts (valid, invalid, adversarial), logistics follow-ups, vendor coordination, etc.
-- **History modes**: `fresh`, `short`, `long`, `mixed_prior_products` — stress context retention.
-- **Simulated personas**: customer, vendor, and logistics lines generated via LLM; inbox polling for async central-agent messages.
-- **LLM judge**: each run scored against a rubric with confidence and reasoning; failures include full transcripts.
+- **Gold questions** — Standard prompts (product inquiry, payment, complaint) to check each agent routes correctly.
+- **Conversation scenarios** — Scripted customer–vendor and vendor–logistics flows.
+- **End-to-end AI tests** — Simulated customers, vendors, and couriers chat with a live API; an AI judge scores whether the outcome met the goal (including tricky cases like fake or wrong receipts).
+- **Observability** — Optional Logfire tracing for debugging agent behavior in production.
 
 ```bash
 cd app
-pytest backend/tests/ai_tests/test_ai_e2e.py -v -m ai_e2e
-```
-
-Optional: point at a remote backend:
-
-```bash
-set AUTOBIZ_BASE_URL=https://your-api.example.com
-pytest backend/tests/ai_tests/test_ai_e2e.py -m ai_e2e -k "fresh and product_available"
-```
-
-### 4. Observability
-
-- **Logfire** instruments FastAPI and Pydantic AI when `LOGFIRE_TOKEN` is set.
-- Agent trace utilities under `backend/chatbot/utils/` support stdout debugging during development.
-
----
-
-## Edge cases
-
-The system explicitly documents or tests for the following:
-
-| Edge case | Behavior / risk |
-|-----------|-----------------|
-| **Payment before order exists** | Verification agents and webhooks must correlate reference/metadata; reconciliation script for gaps. |
-| **Order without confirmed payment** | Central agent payment hard-gate; should not call `create_order` prematurely. |
-| **Wrong or adversarial receipt PDF** | E2E scenarios include corrupt PDFs, plaintext non-receipts, wrong amount/product. |
-| **Multiple open processes** | New messages may attach to wrong process if `process_id` omitted. |
-| **Ambiguous product names** (“a phone”) | Product agent must clarify or search; upselling when SKU unavailable. |
-| **Complaint without order reference** | Complaint agent de-escalates; may need clarification turn. |
-| **Concurrent updates to same Redis key** | Last-write-wins; overlapping customer + webhook + central tool calls. |
-| **Early process completion** | UI hides active work; model loses thread context. |
-| **Stale product cache** | Customer quoted old price/stock; mitigated by TTL and refetch. |
-| **Logistics without vendor “ready for pickup”** | Central prompt forbids premature logistics engagement. |
-| **Self-handled vs carrier delivery** | Vendor chooses route; `finalize_vendor_delivery_route` persists party assignment. |
-| **Redis flush / TTL expiry** | In-flight journeys lost unless critical fields were written to Postgres. |
-| **Tier restrictions** | Free tier disables logistics/upselling/analytics unless `DEBUG=true`. |
-| **Cross-origin frontend → API** | CORS enabled on backend; frontend requires correct `NEXT_PUBLIC_BACKEND_URL`. |
-| **Provider quota exhaustion** | OpenAI 429 → HTTP 500; requires billing/monitoring, not code fallback. |
-
----
-
-## Tech stack
-
-| Layer | Technologies |
-|-------|----------------|
-| Backend | Python 3.11, FastAPI, Uvicorn, Pydantic AI |
-| Data | PostgreSQL 15, Redis 7 |
-| Frontend | Next.js 16, React 18, Tailwind CSS, TypeScript |
-| Payments | Paystack (per-vendor keys, webhooks) |
-| Messaging | WhatsApp Cloud API (optional) |
-| Storage | Cloudflare R2 (optional, receipts/media) |
-| Observability | Logfire |
-| Deploy | Docker Compose, Dokploy, Vercel |
-
----
-
-## Project structure
-
-```
-ottobiz/
-├── app/                              # Backend (FastAPI)
-│   ├── main.py
-│   ├── requirements.txt
-│   ├── docker-compose.local.yml      # Local Postgres + Redis + backend
-│   ├── docker-compose.yml            # Production / Dokploy template
-│   └── backend/
-│       ├── api/routers/              # REST endpoints
-│       ├── chatbot/
-│       │   ├── agents/               # LLM agents
-│       │   ├── interface/            # Chat orchestration entrypoints
-│       │   └── prompts/
-│       ├── db/                       # Migrations, cache, schemas
-│       ├── payments/
-│       ├── whatsapp/
-│       ├── readme/                   # Architecture & Paystack docs
-│       └── tests/
-│           ├── ai_tests/             # E2E AI evaluation harness
-│           └── test_eval/
-├── frontend/                         # Next.js demo UI
-│   ├── app/page.tsx
-│   ├── lib/
-│   └── Dockerfile
-└── README.md
-```
-
----
-
-## Getting started
-
-### Prerequisites
-
-- Python 3.11+
-- Node.js 20+
-- Docker & Docker Compose
-- LLM API key (OpenAI, Gemini, or Anthropic depending on `MODEL_NAME`)
-
-### Backend (Docker — recommended)
-
-```bash
-cd app
-cp .env.example .env   # configure MODEL_API_KEY, POSTGRES_*, REDIS_PASSWORD, etc.
-docker compose -f docker-compose.local.yml up --build
-```
-
-API: `http://localhost:8000` · Docs: `http://localhost:8000/docs`
-
-### Frontend (local dev against Docker backend)
-
-```bash
-cd frontend
-cp .env.example .env
-# NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
-npm install
-npm run dev
-```
-
-UI: `http://localhost:3000`
-
-### Run tests
-
-```bash
-cd app
-pytest backend/tests/
 pytest backend/tests/ai_tests/test_ai_e2e.py -m ai_e2e -v
 ```
 
 ---
 
+## Edge cases handled (or planned for)
+
+- Customer pays but no order exists yet → webhook + receipt verification reconcile payment
+- Product out of stock → upselling agent suggests alternatives
+- Vague product request ("I want a phone") → agent clarifies or searches catalog
+- Complaint with no order number → agent asks for details before escalating
+- Wrong or fake payment receipt → payment agent rejects or flags
+- Multiple open enquiries at once → processes tracked separately to avoid mixing orders
+- Vendor chooses self-delivery vs courier → central agent records the choice and routes accordingly
+- Long conversations → older messages summarized so agents stay focused
+
+---
+
+## Tech stack
+
+Python · FastAPI · PostgreSQL · Redis · Pydantic AI · Next.js · Tailwind CSS · Paystack · WhatsApp (optional) · Docker · Vercel
+
+---
+
+## Getting started
+
+**Backend**
+```bash
+cd app
+cp .env.example .env   # add your AI API key and database settings
+docker compose -f docker-compose.local.yml up --build
+```
+→ API at `http://localhost:8000` · Docs at `/docs`
+
+**Frontend**
+```bash
+cd frontend
+cp .env.example .env   # NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
+npm install && npm run dev
+```
+→ UI at `http://localhost:3000`
+
+---
+
 ## Deployment
 
-### Backend (Dokploy / Docker)
-
-- Build from `app/` with `dockerfile`.
-- Provide: `DATABASE_URL`, `REDIS_URL` (or `REDIS_SERVER_*` when `DEBUG=true`), `MODEL_API_KEY`, `MODEL_NAME`, `BASE_URL` (public API URL for webhooks and callbacks).
-- Ensure Redis password in URL matches Redis service configuration.
-- Postgres and Redis should live on an internal Docker network, not exposed publicly.
-
-### Frontend (Vercel)
-
-1. Set **Root Directory** to `frontend/`.
-2. Set **`NEXT_PUBLIC_BACKEND_URL`** to your public backend URL (build-time).
-3. Optionally set **`BACKEND_URL`** for server-side rewrites to `/backend/*`.
-4. Do **not** use a custom `vercel-build` script—let Vercel run the default Next.js build once.
+| Service | Where |
+|---------|--------|
+| Backend, Postgres, Redis | Docker / Dokploy |
+| Frontend | Vercel (set root directory to `frontend/`, add `NEXT_PUBLIC_BACKEND_URL`) |
 
 ---
 
-## Documentation
-
-| Document | Description |
-|----------|-------------|
-| [`app/backend/readme/architectural_workflow.md`](app/backend/readme/architectural_workflow.md) | End-to-end backend journey |
-| [`app/backend/readme/journey_risks_and_hardening.md`](app/backend/readme/journey_risks_and_hardening.md) | Failure modes and hardening |
-| [`app/backend/readme/paystack_flow.md`](app/backend/readme/paystack_flow.md) | Payment initialization, webhooks, verification |
-| [`FRONTEND_INTEGRATION.md`](FRONTEND_INTEGRATION.md) | Frontend ↔ API integration notes |
-
----
-
-## License
-
-See repository license file (if applicable).
-
-## Author
-
-Built as a portfolio-grade demonstration of multi-agent commerce automation, full-stack integration, and operable AI system design.
+Built as a portfolio demonstration of multi-agent commerce automation — from first message to delivered order.
