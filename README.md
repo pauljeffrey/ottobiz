@@ -42,7 +42,7 @@ Ottobiz uses **many focused agents** instead of one generic chatbot. Each agent 
 | **Upselling agent** | Suggests alternatives when something is out of stock. |
 | **Marketing agent** | Recommends related products after a purchase. |
 
-**How they work together:** The customer talks to the conversational agent. When something specific is needed (payment check, delivery, complaint), a specialist steps in. When the vendor or logistics company must be involved, the **central agent** takes over — it is the only agent that freely moves messages across all three sides.
+**How they work together:** The customer talks to the conversational agent. When something specific is needed (payment check, delivery, complaint), a specialist steps in. When the vendor or logistics company must be involved, the **central agent** takes over: it is the only agent that freely moves messages across all three sides.
 
 **Important rules the system enforces:**
 - Orders are not created until payment is verified.
@@ -52,12 +52,12 @@ Ottobiz uses **many focused agents** instead of one generic chatbot. Each agent 
 ---
 ## Decision & idea choices
 
-- **Specialist agents, not one mega-bot** — Sales, payments, complaints, and logistics need different rules. Splitting agents keeps behavior predictable and easier to improve.
-- **A central coordinator** — Cross-party messaging (customer ↔ vendor ↔ logistics) goes through one agent so nothing falls through the cracks.
-- **Separate inboxes per party** — Vendors and couriers do not share the customer's chat thread; they get their own messages, like in real life.
-- **Live demo UI** — Built to show stakeholders how the backend behaves, not just to chat in isolation.
-- **Payments via Paystack** — Each business can use its own Paystack account; webhooks confirm payment even if the customer leaves chat to pay (still under development).
-- **Tiered product vision** — Free, Gold, and Platinum tiers gate features like logistics and analytics for a future commercial product.
+- **Specialist agents, not one mega-bot** : Sales, payments, complaints, and logistics need different rules. Splitting agents keeps behavior predictable and easier to improve.
+- **A central coordinator** : Cross-party messaging (customer ↔ vendor ↔ logistics) goes through one agent so nothing falls through the cracks.
+- **Separate inboxes per party** : Vendors and couriers do not share the customer's chat thread; they get their own messages, like in real life.
+- **Live demo UI** : Built to show stakeholders how the backend behaves, not just to chat in isolation.
+- **Payments via Paystack** : Each business can use its own Paystack account; webhooks confirm payment even if the customer leaves chat to pay (still under development).
+- **Tiered product vision** : Free, Gold, and Platinum tiers gate features like logistics and analytics for a future commercial product.
 
 ---
 
@@ -83,7 +83,7 @@ For deeper technical flow, see [`app/backend/readme/architectural_workflow.md`](
 2. **Specialist finishes its task** → if another party must act, it notifies the central agent.
 3. **Central agent decides** who goes next (customer, vendor, or logistics), updates order/process state, and sends the message.
 4. **Vendor or logistics replies** in their own chat → business agent either handles it directly (e.g. "show my inventory") or forwards it to the central agent for coordination.
-5. **Customer sees a polished reply** — long internal reasoning is never dumped on the shopper.
+5. **Customer sees a polished reply** → long internal reasoning is never dumped on the shopper.
 
 This hub-and-spoke design keeps customer-facing chat friendly while still automating the messy back-and-forth between business and delivery partners.
 
@@ -116,15 +116,10 @@ This hub-and-spoke design keeps customer-facing chat friendly while still automa
 
 Quality is tested in several ways:
 
-- **Gold questions** — Standard prompts (product inquiry, payment, complaint) to check each agent routes correctly.
-- **Conversation scenarios** — Scripted customer–vendor and vendor–logistics flows.
-- **End-to-end AI tests** — Simulated customers, vendors, and couriers chat with a live API; an AI judge scores whether the outcome met the goal (including tricky cases like fake or wrong receipts).
-- **Observability** — Optional Logfire tracing for debugging agent behavior in production.
-
-```bash
-cd app
-pytest backend/tests/ai_tests/test_ai_e2e.py -m ai_e2e -v
-```
+- **Gold questions**: Standard prompts (product inquiry, payment, complaint) to check each agent routes correctly.
+- **Conversation scenarios**: Scripted customer–vendor and vendor–logistics flows.
+- **End-to-end AI tests**: Simulated customers, vendors, and couriers chat with a live API; an AI judge scores whether the outcome met the goal (including tricky cases like fake or wrong receipts).
+- **Observability**: Optional Logfire tracing for debugging agent behavior in production.
 
 ---
 
@@ -171,7 +166,7 @@ npm install && npm run dev
 
 | Service | Where |
 |---------|--------|
-| Backend, Postgres, Redis | Docker / Dokploy |
+| Backend, Postgres, Redis | Docker |
 | Frontend | Vercel (set root directory to `frontend/`, add `NEXT_PUBLIC_BACKEND_URL`) |
 
 ---
