@@ -21,6 +21,9 @@ ENV BACKEND_URL=$BACKEND_URL
 ARG NEXT_PUBLIC_BACKEND_URL=
 ENV NEXT_PUBLIC_BACKEND_URL=$NEXT_PUBLIC_BACKEND_URL
 
+ARG FRAME_ANCESTORS=
+ENV FRAME_ANCESTORS=$FRAME_ANCESTORS
+
 RUN npm run build
 
 # ── Stage 3: runner ───────────────────────────────────────────────────────────

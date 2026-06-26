@@ -10,6 +10,12 @@ const backendTarget = (
   ""
 ).replace(/\/$/, "")
 
+// Sites allowed to embed this app in an iframe (e.g. Aletheia marketing site).
+// Space-separated list; include 'self' if the app should also frame itself.
+const frameAncestors =
+  process.env.FRAME_ANCESTORS?.trim() ||
+  "'self' https://www.aletheia.com.ng https://aletheia.com.ng"
+
 if (!backendTarget) {
   console.error(
     "ERROR: Neither NEXT_PUBLIC_BACKEND_URL nor BACKEND_URL is set. " +
@@ -24,6 +30,19 @@ const nextConfig = {
   },
   images: {
     unoptimized: true,
+  },
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          {
+            key: "Content-Security-Policy",
+            value: `frame-ancestors ${frameAncestors};`,
+          },
+        ],
+      },
+    ]
   },
   async rewrites() {
     if (!backendTarget) return []
