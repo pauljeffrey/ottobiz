@@ -8,29 +8,27 @@ from typing import Optional
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
-from pydantic_ai.models.anthropic import AnthropicModel
-from pydantic_ai.models.gemini import GeminiModel
-from pydantic_ai.models.openai import OpenAIModel
-from pydantic_ai.providers.anthropic import AnthropicProvider
-from pydantic_ai.providers.google_gla import GoogleGLAProvider
-from pydantic_ai.providers.openai import OpenAIProvider
+
+from backend.chatbot.agents.base_agent import BaseAgent
 
 load_dotenv()
 
 
 def _make_model(model_name: Optional[str] = None, api_key: Optional[str] = None):
+    """Reuse production model routing (OpenRouter, Google, OpenAI, Anthropic)."""
     mn = model_name or os.getenv("MODEL_NAME", "gemini-2.0-flash")
-    name = mn.lower()
-    key = api_key or os.getenv("MODEL_API_KEY", "")
+    key = api_key or os.getenv("OPENROUTER_API_KEY") or os.getenv("MODEL_API_KEY", "")
+    if not key and "/" not in mn.lower():
+        key = (
+            os.getenv("OPENAI_API_KEY")
+            or os.getenv("GOOGLE_API_KEY")
+            or os.getenv("MODEL_API_KEY", "")
+        )
     if not key:
-        raise RuntimeError("MODEL_API_KEY is required for AI E2E tests")
-    if "gemini" in name:
-        return GeminiModel(mn, provider=GoogleGLAProvider(api_key=key))
-    if "claude" in name:
-        return AnthropicModel(mn, provider=AnthropicProvider(api_key=key))
-    if "gpt" in name or "openai" in name:
-        return OpenAIModel(mn, provider=OpenAIProvider(api_key=key))
-    return GeminiModel(mn, provider=GoogleGLAProvider(api_key=key))
+        raise RuntimeError(
+            "Set OPENROUTER_API_KEY or MODEL_API_KEY to run AI E2E tests"
+        )
+    return BaseAgent(model_name=mn, api_key=key).model
 
 
 class JudgeVerdict(BaseModel):

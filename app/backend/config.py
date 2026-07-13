@@ -12,8 +12,15 @@ load_dotenv()
 DEBUG = os.getenv("DEBUG", "False").lower() == "true"
 
 # Model Configuration
+# MODEL_NAME examples:
+#   OpenRouter:  google/gemma-4-31b-it, meta-llama/llama-3.1-70b-instruct
+#   Native:      gemini-2.0-flash, gpt-4o-mini, claude-3-5-sonnet-latest
 MODEL_NAME = os.getenv("MODEL_NAME", "gemini-2.0-flash")
 MODEL_API_KEY = os.getenv("MODEL_API_KEY", "")
+# Provider-specific keys (optional). Routing falls back to MODEL_API_KEY when unset.
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "") or MODEL_API_KEY
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "") or MODEL_API_KEY
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "") or MODEL_API_KEY
 # Coordinator uses this model when set; otherwise MODEL_NAME (stronger model recommended).
 CENTRAL_AGENT_MODEL_NAME = os.getenv("CENTRAL_AGENT_MODEL_NAME", "").strip() or MODEL_NAME
 
@@ -84,6 +91,9 @@ class Config:
     DEBUG = DEBUG
     MODEL_NAME = MODEL_NAME
     MODEL_API_KEY = MODEL_API_KEY
+    OPENROUTER_API_KEY = OPENROUTER_API_KEY
+    OPENAI_API_KEY = OPENAI_API_KEY
+    GOOGLE_API_KEY = GOOGLE_API_KEY
     CENTRAL_AGENT_MODEL_NAME = CENTRAL_AGENT_MODEL_NAME
     DATABASE_URL = DATABASE_URL
     REDIS_URL = REDIS_URL

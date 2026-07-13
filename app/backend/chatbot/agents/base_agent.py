@@ -3,27 +3,39 @@ Base Agent Class for Ottobiz
 All agents inherit from this base class which provides common functionality.
 """
 
+import logging
 import os
-import logfire
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+import logfire
 from pydantic_ai import Agent
+from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
+from pydantic_ai.models.anthropic import AnthropicModel
+from pydantic_ai.models.google import GoogleModel
+from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.models.openrouter import OpenRouterModel, OpenRouterModelSettings
+from pydantic_ai.providers.anthropic import AnthropicProvider
+from pydantic_ai.providers.google import GoogleProvider
+from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai.providers.openrouter import OpenRouterProvider
+
+from backend.config import config
 
 logfire.configure(
     token=os.getenv("LOGFIRE_TOKEN"),
     send_to_logfire="if-token-present",
 )
 logfire.instrument_pydantic_ai()
-from pydantic_ai.models.anthropic import AnthropicModel
-from pydantic_ai.models.gemini import GeminiModel
-from pydantic_ai.models.openai import OpenAIModel
-from pydantic_ai.providers.anthropic import AnthropicProvider
-from pydantic_ai.providers.google_gla import GoogleGLAProvider
-from pydantic_ai.providers.openai import OpenAIProvider
-from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
 
-from backend.config import config
+logger = logging.getLogger(__name__)
+
+# OpenRouter prompt caching — cuts repeat latency on multi-turn sessions
+_OPENROUTER_SETTINGS = OpenRouterModelSettings(
+    openrouter_cache_instructions=True,
+    openrouter_cache_tool_definitions=True,
+    timeout=180.0,
+)
 
 
 @dataclass
@@ -60,14 +72,14 @@ class BaseAgent:
 
         Args:
             model_name: Model name to use (defaults to config.MODEL_NAME)
-            api_key: API key for the model (defaults to config.MODEL_API_KEY)
+            api_key: API key for the model (defaults per provider / MODEL_API_KEY)
             system_prompt: System prompt for the agent
             instructions: Instructions for the agent
             deps_type: Type for dependencies
             output_type: Type for structured output (Pydantic model)
         """
         self.model_name = model_name or config.MODEL_NAME
-        self.api_key = api_key or config.MODEL_API_KEY
+        self.api_key = api_key
         self.system_prompt = system_prompt
         self.instructions = instructions
 
@@ -90,30 +102,49 @@ class BaseAgent:
             agent_kwargs["model_settings"] = model_settings
         self.agent = Agent(self.model, **agent_kwargs)
 
-    def _select_model(self, model_name: str, api_key: Optional[str] = None):
+    def _select_model(self, model_name: Optional[str] = None, api_key: Optional[str] = None):
         """
-        Select and initialize the appropriate model based on model_name.
+        Route model names to the correct pydantic-ai provider.
 
-        Args:
-            model_name: Name of the model to use
-            api_key: API key for the model
-
-        Returns:
-            Initialized model instance
+        Rules:
+          - Slugs with ``/`` (e.g. ``google/gemma-4-31b-it``, ``meta-llama/...``) → OpenRouter
+          - ``gemini*`` without slash → Google
+          - ``claude*`` → Anthropic
+          - ``gpt*`` / ``openai*`` → OpenAI
+          - Everything else → OpenRouter (where credits usually live)
         """
-        api_key = api_key or config.MODEL_API_KEY
+        name = (model_name or config.MODEL_NAME).strip()
+        lower = name.lower()
 
-        if "gemini" in model_name.lower():
-            return GeminiModel(model_name, provider=GoogleGLAProvider(api_key=api_key))
-        elif "claude" in model_name.lower():
-            return AnthropicModel(
-                model_name, provider=AnthropicProvider(api_key=api_key)
+        # Vendor/model slugs — always OpenRouter, never native Google API
+        if "/" in lower:
+            key = api_key or config.OPENROUTER_API_KEY
+            logger.info("OpenRouter model: %s", name)
+            return OpenRouterModel(
+                name,
+                provider=OpenRouterProvider(api_key=key),
+                settings=_OPENROUTER_SETTINGS,
             )
-        elif "gpt" in model_name.lower() or "openai" in model_name.lower():
-            return OpenAIModel(model_name, provider=OpenAIProvider(api_key=api_key))
-        else:
-            # Default to Gemini
-            return GeminiModel(model_name, provider=GoogleGLAProvider(api_key=api_key))
+
+        if lower.startswith("gemini"):
+            key = api_key or config.GOOGLE_API_KEY
+            return GoogleModel(name, provider=GoogleProvider(api_key=key))
+
+        if "claude" in lower:
+            key = api_key or config.MODEL_API_KEY
+            return AnthropicModel(name, provider=AnthropicProvider(api_key=key))
+
+        if "gpt" in lower:
+            key = api_key or config.OPENAI_API_KEY
+            return OpenAIChatModel(name, provider=OpenAIProvider(api_key=key))
+
+        key = api_key or config.OPENROUTER_API_KEY
+        logger.info("Routing unknown model via OpenRouter: %s", name)
+        return OpenRouterModel(
+            name,
+            provider=OpenRouterProvider(api_key=key),
+            settings=_OPENROUTER_SETTINGS,
+        )
 
     async def run(
         self,

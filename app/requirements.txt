@@ -3,7 +3,7 @@ uvicorn==0.30.1
 fastapi==0.111.0
 
 # AI/ML Libraries
-pydantic-ai-slim[google,anthropic,openai,logfire]==1.73.0
+pydantic-ai-slim[google,anthropic,openai,openrouter,logfire]>=1.73.0
 pydantic>=2.7.4
 
 # Database
