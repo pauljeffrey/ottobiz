@@ -240,6 +240,22 @@ async def create_order(
     if not pid:
         return {"error": "process_id is required to create an order — ensure_central_process must be called first."}
 
+    existing_order_id = (ctx.deps.active_process or {}).get("order_id")
+    if existing_order_id:
+        existing = await get_order_by_id(str(existing_order_id))
+        if existing:
+            logger.info(
+                "central_agent | create_order_skipped_duplicate | order_id=%s process_id=%s",
+                existing_order_id,
+                pid,
+            )
+            return {
+                "order_id": str(existing["id"]),
+                "order_number": existing["order_number"],
+                "status": "already_created",
+                "message": f"Order {existing['order_number']} was already created for this process.",
+            }
+
     resolved_name = (product_name or "").strip()
     if not resolved_name and ctx.deps.product and (ctx.deps.product.name or "").strip():
         resolved_name = (ctx.deps.product.name or "").strip()
@@ -649,20 +665,23 @@ async def get_delivery_logistics_context(ctx: RunContext[CentralAgentDeps]) -> D
     try:
         biz = await get_business_info(bid) or {}
         party = await get_party_state(bid) or {}
-        partner = biz.get("partner_logistic_id") or party.get("logistic_id")
+        db_partner = biz.get("partner_logistic_id")
+        party_assigned = party.get("logistic_id")
+        partner = db_partner or party_assigned
         pname = None
         if partner:
             pr = await get_business_info(str(partner)) or {}
             pname = pr.get("name")
 
-        # No configured partner — pull registry so agent can pick one
+        # No configured partner and no prior assignment — pull registry so agent can pick one
         registry: List[Dict[str, Any]] = []
         if not partner:
             rows = await get_logistics_companies(limit=5)
             registry = [{"id": str(r["id"]), "name": r.get("name"), "phone": r.get("phone_number")} for r in rows]
 
         return {
-            "db_partner_logistic_id": str(partner) if partner else None,
+            "db_partner_logistic_id": str(db_partner) if db_partner else None,
+            "party_assigned_logistic_id": str(party_assigned) if party_assigned else None,
             "db_partner_name": pname,
             "party_delivery_route": party.get("delivery_route"),
             "registry_sample": registry or None,
@@ -837,14 +856,13 @@ async def run_central_agent(
         
         order_num_out = proc.get("order_number") or proc.get("order_id") or event_message.order_id
 
-        # Only business chat forwards use AGENT→VENDOR as a structured hint; duplicating the
-        # *inbound* message to the vendor inbox when central targets another party is correct
-        # there. Logistics (and other specialists) use the same structured hint but must not
-        # spam the vendor inbox when central legitimately replies to logistics.
+        # Specialist agents (product/payment/logistics/complaint) hint AGENT→VENDOR when they
+        # need the vendor told something directly. If central's own routing decision (recipient_lower,
+        # below) targets somewhere else instead, still guarantee the vendor's inbox gets the
+        # original specialist request rather than silently dropping it.
         force_vendor_inbox = (
             event_message.sender == EntityType.AGENT
             and event_message.recipient == EntityType.VENDOR
-            and caller_agent == "business_chat_interface"
         )
 
         _tt = _task_label(event_message.task_type)
@@ -962,6 +980,21 @@ async def run_central_agent(
             logistics_party_id = str(event_message.logistic.id).strip() or None
         if not logistics_party_id and proc.get("logistic_id"):
             logistics_party_id = str(proc.get("logistic_id")).strip() or None
+        if not logistics_party_id and recipient_lower == "logistics" and business_id:
+            # finalize_vendor_delivery_route persists to the vendor's own party state, not
+            # this process dict — fall back to it (and the DB partner) so the first turn
+            # that routes to logistics doesn't silently drop the message just because the
+            # model never separately called update_process(logistic_id=...).
+            vendor_party = await get_party_state(business_id) or {}
+            fallback_lid = vendor_party.get("logistic_id")
+            if not fallback_lid:
+                biz_row = await get_business_info(business_id) or {}
+                fallback_lid = (biz_row or {}).get("partner_logistic_id")
+            if fallback_lid:
+                logistics_party_id = str(fallback_lid).strip() or None
+                proc["logistic_id"] = logistics_party_id
+                redis_state.setdefault("processes", {})[pid] = proc
+                await modify_user_state(customer_id, business_id, redis_state)
 
         sent_message = await deliver_central_outbound(
             CentralOutboundContext(

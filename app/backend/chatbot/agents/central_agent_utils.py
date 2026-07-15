@@ -443,6 +443,12 @@ async def deliver_central_outbound(ctx: CentralOutboundContext) -> str:
             logger.warning(
                 "central_outbound | logistics recipient but no party id (set logistic on inbound or process.logistic_id)"
             )
+        elif ctx.recipient_lower not in ("vendor", "customer"):
+            logger.info(
+                "central_outbound | no external delivery for recipient=%r (process_id=%s) — treated as a no-op",
+                ctx.recipient_lower,
+                ctx.process_id,
+            )
         return sent_message
 
     msg = ctx.outbound_message
