@@ -1,6 +1,7 @@
 """
 Paystack: browser callback (customer redirect) and server webhook (authoritative success).
 """
+import asyncio
 import json
 import logging
 from typing import Any, Dict, Optional
@@ -9,7 +10,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from backend.config import PAYSTACK_WEBHOOK_CONFIRMED_MAX
-from backend.db.cache_utils import get_user_state, modify_user_state, redis_conn
+from backend.db.cache_utils import get_user_state, modify_user_state, redis_conn, user_state_lock
 from backend.db.db_utils import get_business_info, record_paystack_webhook_event
 from backend.payments.paystack_client import paystack_subunit_to_major, verify_webhook_signature
 
@@ -27,7 +28,7 @@ async def _resolve_business_id_for_webhook(
     if bid:
         return str(bid)
     try:
-        raw = redis_conn._client.get(f"paystack_ref:{reference}")
+        raw = await asyncio.to_thread(redis_conn._client.get, f"paystack_ref:{reference}")
         if raw:
             if isinstance(raw, bytes):
                 raw = raw.decode("utf-8")
@@ -93,7 +94,7 @@ async def paystack_webhook(request: Request):
     user_id = meta.get("user_id")
     if not user_id:
         try:
-            raw_map = redis_conn._client.get(f"paystack_ref:{reference}")
+            raw_map = await asyncio.to_thread(redis_conn._client.get, f"paystack_ref:{reference}")
             if raw_map:
                 if isinstance(raw_map, bytes):
                     raw_map = raw_map.decode("utf-8")
@@ -130,25 +131,26 @@ async def paystack_webhook(request: Request):
         inserted,
     )
     try:
-        us = await get_user_state(str(user_id), vendor_id) or {}
-        conf = us.setdefault("paystack_webhook_confirmed", [])
-        if isinstance(conf, list):
-            entry = {
-                "reference": reference,
-                "amount_kobo": data.get("amount"),
-                "amount_major": float(paystack_subunit_to_major(ak))
-                if ak is not None
-                else None,
-                "currency": currency,
-                "paid_at": data.get("paid_at"),
-            }
-            if not any(
-                isinstance(x, dict) and x.get("reference") == reference for x in conf
-            ):
-                conf.append(entry)
-            if len(conf) > PAYSTACK_WEBHOOK_CONFIRMED_MAX:
-                del conf[: len(conf) - PAYSTACK_WEBHOOK_CONFIRMED_MAX]
-        await modify_user_state(str(user_id), vendor_id, us)
+        async with user_state_lock(str(user_id), vendor_id):
+            us = await get_user_state(str(user_id), vendor_id) or {}
+            conf = us.setdefault("paystack_webhook_confirmed", [])
+            if isinstance(conf, list):
+                entry = {
+                    "reference": reference,
+                    "amount_kobo": data.get("amount"),
+                    "amount_major": float(paystack_subunit_to_major(ak))
+                    if ak is not None
+                    else None,
+                    "currency": currency,
+                    "paid_at": data.get("paid_at"),
+                }
+                if not any(
+                    isinstance(x, dict) and x.get("reference") == reference for x in conf
+                ):
+                    conf.append(entry)
+                if len(conf) > PAYSTACK_WEBHOOK_CONFIRMED_MAX:
+                    del conf[: len(conf) - PAYSTACK_WEBHOOK_CONFIRMED_MAX]
+            await modify_user_state(str(user_id), vendor_id, us)
     except Exception:
         logger.exception("paystack_webhook_state_update_failed")
 
