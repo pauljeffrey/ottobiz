@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from backend.db.db_utils import get_inventory as db_get_inventory
-from backend.db.db_utils import get_low_stock_products, get_products
+from backend.db.db_utils import get_low_stock_products, get_products, update_product_stock_for_business
 from backend.db.cache_utils import get_inventory_activity
 
 logger = logging.getLogger(__name__)
@@ -133,6 +133,17 @@ async def get_inventory(request: InventoryRequest):
 
 @router.post("/update")
 async def update_inventory(request: InventoryUpdateRequest):
-    """Update inventory quantity."""
-    return {"success": True, "product_id": request.product_id, "quantity": request.quantity}
+    """Update a product's stock quantity (scoped to the requesting business)."""
+    row = await update_product_stock_for_business(
+        request.business_id, request.product_id, request.quantity
+    )
+    if not row:
+        raise HTTPException(
+            status_code=404, detail="Product not found for this business."
+        )
+    return {
+        "success": True,
+        "product_id": str(row.get("id")),
+        "quantity": row.get("stock_quantity"),
+    }
 

@@ -35,6 +35,36 @@ def _serialize_order(row: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def _business_insights(data: Dict[str, Any]) -> List[str]:
+    orders = data.get("orders") or {}
+    sales = data.get("sales") or {}
+    top_products = data.get("top_products") or []
+
+    total_orders = int(orders.get("total_orders") or 0)
+    if total_orders == 0:
+        return ["No orders yet — insights will appear once customers start ordering."]
+
+    insights: List[str] = []
+    delivered = int(orders.get("delivered_orders") or 0)
+    pending = int(orders.get("pending_orders") or 0)
+    completion_rate = round((delivered / total_orders) * 100, 1) if total_orders else 0
+    insights.append(f"{completion_rate}% of orders delivered ({delivered}/{total_orders})")
+    if pending:
+        insights.append(f"{pending} order(s) still pending fulfillment")
+
+    avg_txn = float(sales.get("average_transaction_value") or 0)
+    if sales.get("total_transactions"):
+        insights.append(f"Average transaction value: {avg_txn:.2f}")
+
+    top = next((p for p in top_products if float(p.get("revenue") or 0) > 0), None)
+    if top:
+        insights.append(
+            f"Top product: {top.get('name')} — {top.get('order_count')} order(s), "
+            f"{float(top.get('revenue') or 0):.2f} revenue"
+        )
+    return insights
+
+
 @router.post("/business")
 async def business_analytics(request: AnalyticsRequest):
     if not request.business_id:
@@ -45,13 +75,7 @@ async def business_analytics(request: AnalyticsRequest):
             start_date=request.start_date,
             end_date=request.end_date,
         )
-        data.setdefault(
-            "insights",
-            [
-                "Consider running promotions on slow-moving products",
-                "Peak sales hours: 10 AM - 2 PM",
-            ],
-        )
+        data["insights"] = _business_insights(data)
         return data
     except Exception as e:
         logger.exception("business_analytics failed")
