@@ -516,11 +516,11 @@ async def create_order(
         Created order dictionary
     """
     pool = await get_db()
-    import random
+    import secrets
     from datetime import datetime
 
     order_number = (
-        f"ORD-{datetime.now().strftime('%Y%m%d')}-{random.randint(1000, 9999)}"
+        f"ORD-{datetime.now().strftime('%Y%m%d')}-{secrets.token_hex(4).upper()}"
     )
     meta = dict(metadata) if metadata else {}
     meta.setdefault("quantity", quantity)

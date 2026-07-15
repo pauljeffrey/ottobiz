@@ -226,6 +226,17 @@ class ConversationalAgentDeps(BaseModel):
     user_state: Dict[str, Any]
     receipt_data: Optional[str] = None
     background_tasks: Optional[Any] = None
+    # True when this run is only rewriting a central-agent draft for the customer channel
+    # (see run_conversational_agent(polish_only=True)). Handoff tools must no-op in this mode —
+    # otherwise a polish pass can re-enter a specialist -> central_agent -> polish loop with no
+    # recursion guard.
+    polish_only: bool = False
+
+
+_POLISH_MODE_NO_TOOLS = (
+    "Tool handoffs are unavailable while polishing a draft message. "
+    "Just rewrite the draft for the customer, keeping all facts."
+)
 
 
 CONVERSATIONAL_SYSTEM_PROMPT = """
@@ -448,9 +459,11 @@ async def handoff_to_product_specialist(
     product_attributes: Union[Dict,str] = "",
     process_id: Optional[str] = None,
 ) -> str:
-    """Delegate to the product specialist for **specific** items: availability, price, specs, purchase. 
+    """Delegate to the product specialist for **specific** items: availability, price, specs, purchase.
     customer_message: the message from the customer as full standalone.
     They query the real catalog and notify the vendor when something is missing—use this whenever the customer names a product or model."""
+    if ctx.deps.polish_only:
+        return _POLISH_MODE_NO_TOOLS
     msg = customer_message
     if sales_context:
         msg = f"{customer_message}\n\n[Sales context for specialist]\n{sales_context}"
@@ -653,6 +666,8 @@ async def handoff_to_payment_specialist(
     quantity: Optional[float] = None,
 ) -> str:
     """Delegate to the payment specialist. Use `list_session_uploads` + `get_uploaded_file_text` first if uploads exist; `notes` must carry receipt/bank details (amount, receiver account, date/time, ref). Pass `product_name`, `quantity` from the discussion; the payment agent does not fetch uploads—only this `notes` and message text."""
+    if ctx.deps.polish_only:
+        return _POLISH_MODE_NO_TOOLS
     msg = customer_message
     if notes:
         msg = f"{customer_message}\n\n[Payment context]\n{notes}"
@@ -684,6 +699,8 @@ async def handoff_to_logistics_specialist(
     notes: str = "",
 ) -> str:
     """Delegate to the logistics specialist for delivery and tracking inquiries. They query the real catalog and notify the vendor when something is missing—use this whenever the customer names a product or model."""
+    if ctx.deps.polish_only:
+        return _POLISH_MODE_NO_TOOLS
     msg = customer_message
     #if customer address, update user state with customer address
     if customer_address:
@@ -717,6 +734,8 @@ async def handoff_to_complaint_specialist(
     process_id: Optional[str] = None,
 ) -> str:
     """Delegate to the complaint specialist for customer complaints and  about products. They handle complaints and issues and notify the vendor when something is missing—use this whenever the customer names a product or model."""
+    if ctx.deps.polish_only:
+        return _POLISH_MODE_NO_TOOLS
     msg = customer_message
     if issue_summary:
         msg = f"{customer_message}\n\n[Issue summary]\n{issue_summary}"
@@ -745,6 +764,8 @@ async def handoff_to_ads_marketing_specialist(
     seller_tier: str = "",
 ) -> str:
     """Post-purchase: complements after logistics sorted. Not for unavailable-product substitution. upsell complimentary products. Pass seller_tier (e.g. from session Business tier=) so cross-store tools match subscription."""
+    if ctx.deps.polish_only:
+        return _POLISH_MODE_NO_TOOLS
     si = _handoff_session_instructions(ctx, "ads")
     tier = _tier_hint_for_upsell_handoff(ctx.deps.user_state, seller_tier)
     return await run_ads_marketing_agent(
@@ -769,6 +790,8 @@ async def handoff_to_upsell_specialist(
     seller_tier: str = "",
 ) -> str:
     """When the enquired item is unavailable: upsell alternatives / complements from tools. Pass seller_tier (session Business tier=) for correct cross-store gating."""
+    if ctx.deps.polish_only:
+        return _POLISH_MODE_NO_TOOLS
     hist = ctx.deps.user_state.get("chat_history") or []
     situ = (situation_summary or "").strip()
     if product_attributes.strip():
@@ -814,6 +837,7 @@ async def run_conversational_agent(
         user_state=user_state,
         receipt_data=receipt_data,
         background_tasks=background_tasks,
+        polish_only=polish_only,
     )
 
     dynamic_instructions = build_conversational_session_instructions(
@@ -830,7 +854,7 @@ async def run_conversational_agent(
         polish_block = (
             "\n## Mode: Current message is an update from the vendor/logistics routed through the central (specialist) agent."
             "Streamline it for the customer channel (customers use and understanding) given the ongoing conversation. Keep every fact (amounts, order numbers, dates, next steps). "
-            "At most 3–4 short sentences. Call tools where necessary to get the most accurate information or to take the next best action.\n"
+            "At most 3–4 short sentences. Do not call any handoff/specialist tools in this mode — just rewrite the draft using the context already given.\n"
         )
     dynamic_instructions = dynamic_instructions + polish_block
 
