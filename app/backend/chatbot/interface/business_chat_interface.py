@@ -16,7 +16,14 @@ from backend.chatbot.agents.central_agent import (
     _catalog_set_stock_row,
 )
 from backend.chatbot.agents.central_agent_utils import create_structured_input
-from backend.db.cache_utils import get_party_state, get_user_state, modify_party_state, modify_user_state
+from backend.db.cache_utils import (
+    get_party_state,
+    get_user_state,
+    modify_party_state,
+    modify_user_state,
+    party_state_lock,
+    user_state_lock,
+)
 from backend.db.db_utils import (
     get_business_analytics,
     get_business_info,
@@ -332,7 +339,8 @@ async def business_chat(
     if not state_key_id:
         raise ValueError("Not a vaild business. Valid business_id is required")
     with logfire.span("business_chat", party_id=state_key_id):
-        return await _business_chat_inner(business_request, background_tasks, debug, state_key_id)
+        async with party_state_lock(state_key_id):
+            return await _business_chat_inner(business_request, background_tasks, debug, state_key_id)
 
 
 async def _business_chat_inner(
@@ -468,77 +476,78 @@ async def _business_chat_inner(
         else:
             biz_id = (state_key_id or "").strip()
 
-        central_user_state = await get_user_state(rc.customer_id, biz_id) or {}
-        tt = TaskType.UNKNOWN
-        if rc.task_type:
-            for t in TaskType:
-                if t.value == rc.task_type or t.name == rc.task_type:
-                    tt = t
-                    break
-        pid = (rc.process_id or "").strip()
-        if not pid:
-            pid = await ensure_central_process(
-                central_user_state,
-                task_type=tt,
-                customer_id=rc.customer_id,
-                vendor_id=biz_id,
-                product_name=rc.product_name or "",
-                order_id=rc.order_id,
+        async with user_state_lock(rc.customer_id, biz_id):
+            central_user_state = await get_user_state(rc.customer_id, biz_id) or {}
+            tt = TaskType.UNKNOWN
+            if rc.task_type:
+                for t in TaskType:
+                    if t.value == rc.task_type or t.name == rc.task_type:
+                        tt = t
+                        break
+            pid = (rc.process_id or "").strip()
+            if not pid:
+                pid = await ensure_central_process(
+                    central_user_state,
+                    task_type=tt,
+                    customer_id=rc.customer_id,
+                    vendor_id=biz_id,
+                    product_name=rc.product_name or "",
+                    order_id=rc.order_id,
+                )
+            await modify_user_state(rc.customer_id, biz_id, central_user_state)
+
+            if business_is_logistics:
+                _logistic_uuid = (state_key_id or "").strip()
+            else:
+                _logistic_uuid = (rc.logistic_id or logistic_id or "").strip()
+            logistic: Optional[Logistics] = (
+                Logistics(id=_logistic_uuid, name=None, phone=None) if _logistic_uuid else None
             )
-        await modify_user_state(rc.customer_id, biz_id, central_user_state)
 
-        if business_is_logistics:
-            _logistic_uuid = (state_key_id or "").strip()
-        else:
-            _logistic_uuid = (rc.logistic_id or logistic_id or "").strip()
-        logistic: Optional[Logistics] = (
-            Logistics(id=_logistic_uuid, name=None, phone=None) if _logistic_uuid else None
-        )
+            agent_input = await create_structured_input(
+                sender="Logistics" if business_is_logistics else "Vendor",
+                recipient=_bc_out.recipient,
+                message=msg,
+                customer=Customer(id=(rc.customer_id or "").strip()),
+                business=Vendor(id=(biz_id or "").strip() or state_key_id),
+                logistic=logistic,
+                product=Product(id=rc.product_id or "", name=rc.product_name or "", quantity=rc.quantity or 1, price=rc.price or 0, metadata=rc.product_attributes or None, has_paid=False if not rc.order_id else True) if rc.product_name else None,
+                order_id=rc.order_id or None,
+                process_id=pid,
+                task_type=tt,
+            )
 
-        agent_input = await create_structured_input(
-            sender="Logistics" if business_is_logistics else "Vendor",
-            recipient=_bc_out.recipient,
-            message=msg,
-            customer=Customer(id=(rc.customer_id or "").strip()),
-            business=Vendor(id=(biz_id or "").strip() or state_key_id),
-            logistic=logistic,
-            product=Product(id=rc.product_id or "", name=rc.product_name or "", quantity=rc.quantity or 1, price=rc.price or 0, metadata=rc.product_attributes or None, has_paid=False if not rc.order_id else True) if rc.product_name else None,
-            order_id=rc.order_id or None,
-            process_id=pid,
-            task_type=tt,
-        )
+            _ttp = tt.value if hasattr(tt, "value") else str(tt)
+            _mp = (msg or "")[:2000]
+            logger.info(
+                "business_chat_central_forward | party_id=%s customer_id=%s process_id=%s task_type=%s "
+                "recipient=%s message_preview=%r",
+                state_key_id,
+                rc.customer_id,
+                pid,
+                _ttp,
+                _bc_out.recipient,
+                _mp,
+            )
 
-        _ttp = tt.value if hasattr(tt, "value") else str(tt)
-        _mp = (msg or "")[:2000]
-        logger.info(
-            "business_chat_central_forward | party_id=%s customer_id=%s process_id=%s task_type=%s "
-            "recipient=%s message_preview=%r",
-            state_key_id,
-            rc.customer_id,
-            pid,
-            _ttp,
-            _bc_out.recipient,
-            _mp,
-        )
-        
-        logfire.info(
-            "business_chat_central_forward",
-            party_id=state_key_id,
-            customer_id=rc.customer_id,
-            process_id=pid,
-            task_type=_ttp,
-            recipient=str(_bc_out.recipient),
-            message_preview=_mp,
-        )
-        
-        await run_central_agent(
-            agent_input,
-            central_user_state,
-            vendor_only=True,
-            debug=debug,
-            caller_agent="business_chat_interface",
-        )
-        
+            logfire.info(
+                "business_chat_central_forward",
+                party_id=state_key_id,
+                customer_id=rc.customer_id,
+                process_id=pid,
+                task_type=_ttp,
+                recipient=str(_bc_out.recipient),
+                message_preview=_mp,
+            )
+
+            await run_central_agent(
+                agent_input,
+                central_user_state,
+                vendor_only=True,
+                debug=debug,
+                caller_agent="business_chat_interface",
+            )
+
         # Reload so party chat_history includes central appends; then persist this user turn only.
         business_user_state = await get_party_state(state_key_id) or business_user_state
         

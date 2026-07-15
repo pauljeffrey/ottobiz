@@ -19,7 +19,7 @@ from backend.chatbot.agents.conversational_agent import (
 from backend.chatbot.utils.file_handler import process_uploaded_files
 from backend.chatbot.utils.history_summarizer import maybe_summarize_chat_history
 from backend.config import FILE_TEXT_CACHE_MAX, PRODUCTS_CACHE_TTL_HOURS
-from backend.db.cache_utils import get_user_state, modify_user_state
+from backend.db.cache_utils import get_user_state, modify_user_state, user_state_lock
 from backend.db.db_utils import get_business_info, get_chat_summary, upsert_chat_summary
 from backend.struct import UserRequest
 from pydantic_ai.messages import (
@@ -44,7 +44,8 @@ async def chat(
     One user turn + one assistant turn appended to chat_history here.
     """
     with logfire.span("customer_chat", user_id=user_request.user_id, vendor_id=user_request.vendor_id):
-        return await _chat_inner(user_request, background_tasks, reset_user_state, debug, files)
+        async with user_state_lock(user_request.user_id, user_request.vendor_id):
+            return await _chat_inner(user_request, background_tasks, reset_user_state, debug, files)
 
 
 async def _chat_inner(

@@ -190,7 +190,7 @@ async def fetch_payment_link(
     }
     user_state["last_paystack_reference"] = ref
     await modify_user_state(ctx.deps.user_id, ctx.deps.business_id, user_state)
-    persist_paystack_reference(ref, ctx.deps.user_id, ctx.deps.business_id, pid, amt_major)
+    await persist_paystack_reference(ref, ctx.deps.user_id, ctx.deps.business_id, pid, amt_major)
 
     return {
         "ok": True,
@@ -207,7 +207,7 @@ async def get_business_payment_info(
     ctx: RunContext[ProductAgentDeps],
 ) -> Dict[str, str]:
     """Get business payment information (bank account details)"""
-    user_state = await get_user_state(ctx.deps.user_id, ctx.deps.business_id)
+    user_state = await get_user_state(ctx.deps.user_id, ctx.deps.business_id) or {}
     business_info = user_state.get("business_information", {})
 
     return {
