@@ -2,6 +2,7 @@
 Rate-limiting middleware using Redis sliding-window counters.
 Falls back to in-memory tracking when Redis is unavailable.
 """
+import asyncio
 import time
 from collections import defaultdict
 
@@ -33,7 +34,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         client_ip = request.client.host if request.client else "unknown"
-        allowed = self._check_redis(client_ip)
+        allowed = await asyncio.to_thread(self._check_redis, client_ip)
         if allowed is None:
             allowed = self._check_memory(client_ip)
 
