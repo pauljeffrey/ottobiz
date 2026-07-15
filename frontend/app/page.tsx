@@ -13,6 +13,7 @@ import {
   CURRENCIES,
   type CurrencyCode,
   formatAmount,
+  rewriteTextCurrency,
 } from "@/lib/currency"
 import {
   Send,
@@ -201,9 +202,9 @@ export default function Page() {
   /** Chats + sidebar vs compact reports — avoids long vertical scroll. */
   const [workspaceTab, setWorkspaceTab] = useState<"chats" | "reports">("chats")
 
-  const customerMessagesEndRef = useRef<HTMLDivElement>(null)
-  const businessMessagesEndRef = useRef<HTMLDivElement>(null)
-  const logisticsMessagesEndRef = useRef<HTMLDivElement>(null)
+  const customerChatScrollRef = useRef<HTMLDivElement>(null)
+  const businessChatScrollRef = useRef<HTMLDivElement>(null)
+  const logisticsChatScrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     setCustomerSessionId((s) => s.trim() || crypto.randomUUID())
@@ -211,21 +212,23 @@ export default function Page() {
     setLogisticsSessionId((s) => s.trim() || crypto.randomUUID())
   }, [])
 
-  const scrollToBottom = (ref: React.RefObject<HTMLDivElement>) => {
-    ref.current?.scrollIntoView({ behavior: "smooth" })
+  const scrollChatPane = (containerRef: React.RefObject<HTMLDivElement | null>) => {
+    const el = containerRef.current
+    if (!el) return
+    el.scrollTop = el.scrollHeight
   }
 
   useEffect(() => {
-    scrollToBottom(customerMessagesEndRef)
-  }, [customerMessages])
+    scrollChatPane(customerChatScrollRef)
+  }, [customerMessages, isCustomerLoading])
 
   useEffect(() => {
-    scrollToBottom(businessMessagesEndRef)
-  }, [businessMessages])
+    scrollChatPane(businessChatScrollRef)
+  }, [businessMessages, isBusinessLoading])
 
   useEffect(() => {
-    scrollToBottom(logisticsMessagesEndRef)
-  }, [logisticsMessages])
+    scrollChatPane(logisticsChatScrollRef)
+  }, [logisticsMessages, isLogisticsLoading])
 
   useEffect(() => {
     if (!selectedBusiness) {
@@ -907,15 +910,15 @@ export default function Page() {
         </div>
 
         {workspaceTab === "chats" ? (
-        <div className="flex flex-col xl:flex-row gap-3">
-          <div className="flex-1 min-w-0 grid grid-cols-1 lg:grid-cols-3 gap-3">
+        <div className="flex flex-col gap-3">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
           {/* Customer Chat */}
           <div className="bg-white rounded-lg shadow-xl border border-gray-200 min-h-[20rem] h-[min(28rem,52vh)] flex flex-col">
             <div className="bg-blue-500 text-white p-3 rounded-t-lg flex items-center space-x-2">
               <User className="w-5 h-5" />
               <h3 className="font-semibold">Customer Chat</h3>
             </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-2">
+            <div ref={customerChatScrollRef} className="flex-1 overflow-y-auto overscroll-contain p-4 space-y-2">
               {customerMessages.map((msg) => (
                 <div
                   key={msg.id}
@@ -928,7 +931,10 @@ export default function Page() {
                         : "bg-gray-100 text-gray-800"
                     }`}
                   >
-                    <ChatMessageBody content={msg.content} invert={msg.sender === "user"} />
+                    <ChatMessageBody
+                      content={rewriteTextCurrency(msg.content, selectedCurrency)}
+                      invert={msg.sender === "user"}
+                    />
                   </div>
                   </div>
                 ))}
@@ -937,7 +943,6 @@ export default function Page() {
                   <div className="bg-gray-100 px-3 py-2 rounded-lg text-sm">Thinking...</div>
                   </div>
                 )}
-              <div ref={customerMessagesEndRef} />
             </div>
             {/* File Preview */}
             {selectedFiles.length > 0 && (
@@ -979,7 +984,12 @@ export default function Page() {
                   type="text"
                   value={customerInput}
                   onChange={(e) => setCustomerInput(e.target.value)}
-                  onKeyPress={(e) => e.key === "Enter" && handleCustomerSend()}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault()
+                      void handleCustomerSend()
+                    }
+                  }}
                   placeholder={canChat ? "Type a message..." : "Select user & business first"}
                   className="flex-1 border rounded px-3 py-2 text-sm"
                   disabled={!hydrated || !canChat || isCustomerLoading}
@@ -1015,7 +1025,7 @@ export default function Page() {
               <Building2 className="w-5 h-5" />
               <h3 className="font-semibold">Business Chat</h3>
             </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-2">
+            <div ref={businessChatScrollRef} className="flex-1 overflow-y-auto overscroll-contain p-4 space-y-2">
               {businessMessages.map((msg) => (
                 <div
                   key={msg.id}
@@ -1028,7 +1038,10 @@ export default function Page() {
                         : "bg-gray-100 text-gray-800"
                     }`}
                   >
-                    <ChatMessageBody content={msg.content} invert={msg.sender === "user"} />
+                    <ChatMessageBody
+                      content={rewriteTextCurrency(msg.content, selectedCurrency)}
+                      invert={msg.sender === "user"}
+                    />
                   </div>
                 </div>
               ))}
@@ -1037,7 +1050,6 @@ export default function Page() {
                   <div className="bg-gray-100 px-3 py-2 rounded-lg text-sm">Thinking...</div>
                 </div>
               )}
-              <div ref={businessMessagesEndRef} />
             </div>
             <div className="border-t p-3">
               <div className="flex space-x-2">
@@ -1045,7 +1057,12 @@ export default function Page() {
                     type="text"
                   value={businessInput}
                   onChange={(e) => setBusinessInput(e.target.value)}
-                  onKeyPress={(e) => e.key === "Enter" && handleBusinessSend()}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault()
+                      void handleBusinessSend()
+                    }
+                  }}
                   placeholder={selectedBusiness ? "Type a message..." : "Select business first"}
                   className="flex-1 border rounded px-3 py-2 text-sm"
                   disabled={!hydrated || !selectedBusiness || isBusinessLoading}
@@ -1067,7 +1084,7 @@ export default function Page() {
               <Truck className="w-5 h-5" />
               <h3 className="font-semibold">Logistics Chat</h3>
             </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-2">
+            <div ref={logisticsChatScrollRef} className="flex-1 overflow-y-auto overscroll-contain p-4 space-y-2">
               {logisticsMessages.map((msg) => (
                 <div
                   key={msg.id}
@@ -1080,7 +1097,10 @@ export default function Page() {
                         : "bg-gray-100 text-gray-800"
                     }`}
                   >
-                    <ChatMessageBody content={msg.content} invert={msg.sender === "user"} />
+                    <ChatMessageBody
+                      content={rewriteTextCurrency(msg.content, selectedCurrency)}
+                      invert={msg.sender === "user"}
+                    />
                   </div>
                 </div>
               ))}
@@ -1089,7 +1109,6 @@ export default function Page() {
                   <div className="bg-gray-100 px-3 py-2 rounded-lg text-sm">Thinking...</div>
               </div>
               )}
-              <div ref={logisticsMessagesEndRef} />
             </div>
             <div className="border-t p-3">
               <div className="flex space-x-2">
@@ -1097,7 +1116,12 @@ export default function Page() {
                   type="text"
                   value={logisticsInput}
                   onChange={(e) => setLogisticsInput(e.target.value)}
-                  onKeyPress={(e) => e.key === "Enter" && handleLogisticsSend()}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault()
+                      void handleLogisticsSend()
+                    }
+                  }}
                   placeholder={selectedLogistics ? "Type a message..." : "Select logistics first"}
                   className="flex-1 border rounded px-3 py-2 text-sm"
                   disabled={!hydrated || !selectedLogistics || isLogisticsLoading}
@@ -1113,25 +1137,27 @@ export default function Page() {
             </div>
           </div>
           </div>
+          </div>
 
-          <aside className="w-full xl:w-80 shrink-0 space-y-3">
-            {selectedBusiness ? (
-              <>
-                <p className="text-[10px] text-gray-500 flex items-center gap-1.5 px-0.5">
-                  {transparencyRefreshing ? (
-                    <RefreshCw className="w-3 h-3 shrink-0 animate-spin text-indigo-600" />
-                  ) : null}
-                  {transparencyFetchError ? (
-                    <span className="text-amber-700">{transparencyFetchError}</span>
-                  ) : transparencyUpdatedAt ? (
-                    <span>
-                      Last sync {transparencyUpdatedAt.toLocaleTimeString()} · auto every{" "}
-                      {TRANSPARENCY_POLL_MS / 1000}s
-                    </span>
-                  ) : (
-                    <span>Syncing panels…</span>
-                  )}
-                </p>
+          {selectedBusiness ? (
+            <>
+              <p className="text-[10px] text-gray-500 flex items-center gap-1.5 px-0.5">
+                {transparencyRefreshing ? (
+                  <RefreshCw className="w-3 h-3 shrink-0 animate-spin text-indigo-600" />
+                ) : null}
+                {transparencyFetchError ? (
+                  <span className="text-amber-700">{transparencyFetchError}</span>
+                ) : transparencyUpdatedAt ? (
+                  <span>
+                    Last sync {transparencyUpdatedAt.toLocaleTimeString()} · auto every{" "}
+                    {TRANSPARENCY_POLL_MS / 1000}s
+                  </span>
+                ) : (
+                  <span>Syncing panels…</span>
+                )}
+              </p>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="bg-white rounded-lg shadow-md border border-gray-200 p-3">
                   <div className="flex items-center justify-between gap-2 mb-2">
                     <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-1">
@@ -1150,7 +1176,7 @@ export default function Page() {
                   <p className="text-[10px] text-gray-400 mb-1">
                     DB snapshot · auto every {TRANSPARENCY_POLL_MS / 1000}s
                   </p>
-                  <div className="max-h-52 overflow-y-auto text-xs">
+                  <div className="max-h-52 overflow-y-auto overscroll-contain text-xs">
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="text-gray-500 border-b">
@@ -1187,7 +1213,7 @@ export default function Page() {
                   </div>
                 </div>
 
-                <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden flex flex-col max-h-[24rem] min-h-0">
+                <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden flex flex-col min-h-0">
                   <div className="flex items-stretch shrink-0 border-b border-gray-100 bg-gray-50">
                     <div className="flex-1 flex items-center px-3 py-2 text-sm font-medium text-gray-800 text-left min-w-0">
                       <span className="truncate flex items-center gap-1">
@@ -1207,75 +1233,76 @@ export default function Page() {
                       />
                     </button>
                   </div>
-                  <div className="p-3 flex-1 min-h-[10rem] max-h-72 overflow-y-auto overscroll-contain text-xs border-t border-gray-100 space-y-2">
-                      <p className="text-[10px] text-gray-400">
-                        Non-terminal orders · needs user + business · auto every {TRANSPARENCY_POLL_MS / 1000}s
-                      </p>
-                      {!canChat ? (
-                        <p className="text-gray-400">Select user and business</p>
-                      ) : activeSessionOrders.length === 0 ? (
-                        <p className="text-gray-400">No active orders for this pair</p>
-                      ) : (
-                        activeSessionOrders.map((ord) => {
-                          const qty = sessionOrderQtyHint(ord)
-                          const addr = [ord.delivery_address, ord.delivery_city, ord.delivery_state]
-                            .filter(Boolean)
-                            .join(", ")
-                          return (
-                            <div
-                              key={ord.id}
-                              className="border border-indigo-100 rounded-md p-2 bg-indigo-50/40 text-gray-800"
-                            >
-                              <div className="font-semibold text-indigo-900">
-                                {ord.order_number ?? ord.id.slice(0, 8)}
-                                <span className="font-normal text-gray-600 ml-2">
-                                  · {ord.status ?? "—"}
-                                </span>
+                  <div className="p-3 min-h-[10rem] max-h-72 overflow-y-auto overscroll-contain text-xs border-t border-gray-100 space-y-2">
+                    <p className="text-[10px] text-gray-400">
+                      Non-terminal orders · needs user + business · auto every {TRANSPARENCY_POLL_MS / 1000}s
+                    </p>
+                    {!canChat ? (
+                      <p className="text-gray-400">Select user and business</p>
+                    ) : activeSessionOrders.length === 0 ? (
+                      <p className="text-gray-400">No active orders for this pair</p>
+                    ) : (
+                      activeSessionOrders.map((ord) => {
+                        const qty = sessionOrderQtyHint(ord)
+                        const addr = [ord.delivery_address, ord.delivery_city, ord.delivery_state]
+                          .filter(Boolean)
+                          .join(", ")
+                        return (
+                          <div
+                            key={ord.id}
+                            className="border border-indigo-100 rounded-md p-2 bg-indigo-50/40 text-gray-800"
+                          >
+                            <div className="font-semibold text-indigo-900">
+                              {ord.order_number ?? ord.id.slice(0, 8)}
+                              <span className="font-normal text-gray-600 ml-2">
+                                · {ord.status ?? "—"}
+                              </span>
+                            </div>
+                            {ord.product_name ? (
+                              <div className="mt-0.5">
+                                <span className="text-gray-500">product</span> {ord.product_name}
                               </div>
-                              {ord.product_name ? (
-                                <div className="mt-0.5">
-                                  <span className="text-gray-500">product</span> {ord.product_name}
-                                </div>
-                              ) : null}
-                              <div className="mt-0.5 text-gray-700">
-                                <span className="text-gray-500">total</span>{" "}
-                                {ord.total_amount != null ? formatAmount(ord.total_amount, "NGN", selectedCurrency) : "—"}
-                                {qty ? (
-                                  <>
-                                    {" "}
-                                    · <span className="text-gray-500">qty</span> {qty}
-                                  </>
-                                ) : null}
-                              </div>
-                              <div className="font-mono text-[10px] text-gray-500 mt-0.5 break-all">
-                                id {ord.id}
-                              </div>
-                              {ord.tracking_number ? (
-                                <div>
-                                  <span className="text-gray-500">tracking</span> {ord.tracking_number}
-                                </div>
-                              ) : null}
-                              {ord.logistic_id ? (
-                                <div className="text-[10px]">
-                                  <span className="text-gray-500">logistics</span> {ord.logistic_id}
-                                </div>
-                              ) : null}
-                              {addr ? (
-                                <div className="text-gray-600 mt-0.5 line-clamp-2" title={addr}>
-                                  {addr}
-                                </div>
-                              ) : null}
-                              {ord.updated_at ? (
-                                <div className="text-[10px] text-gray-400 mt-1">updated {ord.updated_at}</div>
+                            ) : null}
+                            <div className="mt-0.5 text-gray-700">
+                              <span className="text-gray-500">total</span>{" "}
+                              {ord.total_amount != null ? formatAmount(ord.total_amount, "NGN", selectedCurrency) : "—"}
+                              {qty ? (
+                                <>
+                                  {" "}
+                                  · <span className="text-gray-500">qty</span> {qty}
+                                </>
                               ) : null}
                             </div>
-                          )
-                        })
-                      )}
+                            <div className="font-mono text-[10px] text-gray-500 mt-0.5 break-all">
+                              id {ord.id}
+                            </div>
+                            {ord.tracking_number ? (
+                              <div>
+                                <span className="text-gray-500">tracking</span> {ord.tracking_number}
+                              </div>
+                            ) : null}
+                            {ord.logistic_id ? (
+                              <div className="text-[10px]">
+                                <span className="text-gray-500">logistics</span> {ord.logistic_id}
+                              </div>
+                            ) : null}
+                            {addr ? (
+                              <div className="text-gray-600 mt-0.5 line-clamp-2" title={addr}>
+                                {addr}
+                              </div>
+                            ) : null}
+                            {ord.updated_at ? (
+                              <div className="text-[10px] text-gray-400 mt-1">updated {ord.updated_at}</div>
+                            ) : null}
+                          </div>
+                        )
+                      })
+                    )}
                   </div>
                 </div>
+              </div>
 
-                <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden flex flex-col max-h-[22rem] min-h-0">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                   <div className="flex items-stretch shrink-0 border-b border-gray-100 bg-gray-50">
                     <div className="flex-1 flex items-center px-3 py-2 text-sm font-medium text-gray-800 text-left min-w-0">
                       <span className="truncate">Products discussed (session)</span>
@@ -1472,13 +1499,13 @@ export default function Page() {
                     </div>
                   )}
                 </div>
-              </>
-            ) : (
-              <div className="bg-white rounded-lg shadow border border-dashed border-gray-200 p-4 text-sm text-gray-500">
-                Select a business to load catalog and session debug panels.
               </div>
-            )}
-          </aside>
+            </>
+          ) : (
+            <div className="bg-white rounded-lg shadow border border-dashed border-gray-200 p-4 text-sm text-gray-500">
+              Select a business to load catalog and session debug panels.
+            </div>
+          )}
         </div>
         ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">

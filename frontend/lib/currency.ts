@@ -46,5 +46,28 @@ export function formatAmount(
   if (amount == null || isNaN(Number(amount))) return "—"
   const converted = convertAmount(Number(amount), fromCode, toCode)
   const entry = CURRENCIES.find((c) => c.code === toCode)
-  return `${entry?.symbol ?? toCode} ${converted.toFixed(2)}`
+  return `${entry?.symbol ?? toCode} ${converted.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+function parseMoneyNumber(raw: string): number {
+  return parseFloat(raw.replace(/,/g, ""))
+}
+
+/** Rewrite NGN/naira amounts in agent chat text for the selected display currency. */
+export function rewriteTextCurrency(text: string, toCode: CurrencyCode): string {
+  if (!text || toCode === "NGN") return text
+
+  let out = text
+
+  out = out.replace(/₦\s*([\d,]+(?:\.\d{1,2})?)/g, (_, num) =>
+    formatAmount(parseMoneyNumber(num), "NGN", toCode),
+  )
+  out = out.replace(/\bNGN\s*([\d,]+(?:\.\d{1,2})?)/gi, (_, num) =>
+    formatAmount(parseMoneyNumber(num), "NGN", toCode),
+  )
+  out = out.replace(/\b([\d,]+(?:\.\d{1,2})?)\s*naira\b/gi, (_, num) =>
+    formatAmount(parseMoneyNumber(num), "NGN", toCode),
+  )
+
+  return out
 }
