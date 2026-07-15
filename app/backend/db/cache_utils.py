@@ -1,4 +1,6 @@
 import asyncio
+from collections import defaultdict
+from contextlib import asynccontextmanager
 
 from backend.logging_config import get_logger
 from pydantic_ai.messages import (
@@ -18,10 +20,29 @@ redis_conn = Cache(
     host=REDIS_SERVER_HOST, port=REDIS_SERVER_PORT, password=REDIS_SERVER_PASSWORD
 )
 
+# In-process locks guarding read-modify-write cycles on a given Redis state key
+# (e.g. get_user_state -> mutate -> modify_user_state). Prevents two concurrent
+# turns for the same customer/vendor pair (or webhook + chat turn) from clobbering
+# each other's writes with a stale full-state overwrite. Single-worker-process scope
+# only — fine for this demo deployment, not a substitute for a distributed lock.
+_state_locks: "defaultdict[str, asyncio.Lock]" = defaultdict(asyncio.Lock)
+
+
+@asynccontextmanager
+async def user_state_lock(user_id: str, vendor_id: str):
+    async with _state_locks[f"{user_id}:{vendor_id}"]:
+        yield
+
+
+@asynccontextmanager
+async def party_state_lock(party_id: str):
+    async with _state_locks[f"party:{party_id}"]:
+        yield
+
 
 async def get_user_state(user_id, vendor_id, session_id=None):
     try:
-        user_state = redis_conn.get(f"{user_id}:{vendor_id}")
+        user_state = await asyncio.to_thread(redis_conn.get, f"{user_id}:{vendor_id}")
         if user_state:
             _hydrate_chat_history_if_needed(user_state)
         return user_state
@@ -47,7 +68,7 @@ def _serialize_user_state(user_state: dict) -> dict:
 async def modify_user_state(user_id, vendor_id, user_state, session_id=None) -> bool:
     try:
         serializable = _serialize_user_state(user_state)
-        redis_conn.set(f"{user_id}:{vendor_id}", serializable)
+        await asyncio.to_thread(redis_conn.set, f"{user_id}:{vendor_id}", serializable)
         return True
     except Exception:
         logger.error(
@@ -61,7 +82,7 @@ async def modify_user_state(user_id, vendor_id, user_state, session_id=None) -> 
 
 async def delete_user_state(user_id, vendor_id):
     try:
-        redis_conn.delete(f"{user_id}:{vendor_id}")
+        await asyncio.to_thread(redis_conn.delete, f"{user_id}:{vendor_id}")
     except Exception:
         logger.error(
             "redis_delete_failed | user_id=%s vendor_id=%s",
@@ -88,7 +109,7 @@ async def get_party_state(party_id: str) -> dict:
     if not party_id:
         return {}
     try:
-        user_state = redis_conn.get(party_id)
+        user_state = await asyncio.to_thread(redis_conn.get, party_id)
         if not user_state:
             return {}
         _hydrate_chat_history_if_needed(user_state)
@@ -103,7 +124,7 @@ async def modify_party_state(party_id: str, user_state: dict) -> None:
         return
     try:
         serializable = _serialize_user_state(user_state)
-        redis_conn.set(party_id, serializable)
+        await asyncio.to_thread(redis_conn.set, party_id, serializable)
     except Exception:
         logger.error("redis_party_set_failed | party_id=%s", party_id, exc_info=True)
 
@@ -112,14 +133,14 @@ async def delete_party_state(party_id: str) -> None:
     if not party_id:
         return
     try:
-        redis_conn.delete(party_id)
+        await asyncio.to_thread(redis_conn.delete, party_id)
     except Exception:
         logger.error("redis_party_delete_failed | party_id=%s", party_id, exc_info=True)
 
 
 async def push_to_inbox(recipient_id: str, message: dict) -> bool:
     try:
-        redis_conn.push_to_list(f"inbox:{recipient_id}", message)
+        await asyncio.to_thread(redis_conn.push_to_list, f"inbox:{recipient_id}", message)
         return True
     except Exception:
         logger.error("inbox_push_failed | recipient_id=%s", recipient_id, exc_info=True)
@@ -144,7 +165,7 @@ async def push_to_inbox_with_retry(
 
 async def get_inbox(recipient_id: str) -> list:
     try:
-        return redis_conn.pop_all_from_list(f"inbox:{recipient_id}")
+        return await asyncio.to_thread(redis_conn.pop_all_from_list, f"inbox:{recipient_id}")
     except Exception:
         logger.error("inbox_get_failed | recipient_id=%s", recipient_id, exc_info=True)
         return []
@@ -155,7 +176,7 @@ async def delete_inbox_key(recipient_id: str) -> None:
     if not recipient_id:
         return
     try:
-        redis_conn.delete(f"inbox:{recipient_id}")
+        await asyncio.to_thread(redis_conn.delete, f"inbox:{recipient_id}")
     except Exception:
         logger.error("inbox_delete_failed | recipient_id=%s", recipient_id, exc_info=True)
 
@@ -200,7 +221,8 @@ async def record_inventory_activity(business_id: str, record: dict) -> None:
     if not business_id or not isinstance(record, dict):
         return
     try:
-        redis_conn.rpush_json_capped(
+        await asyncio.to_thread(
+            redis_conn.rpush_json_capped,
             _inventory_activity_key(business_id), record, INV_ACTIVITY_CAP
         )
     except Exception:
@@ -217,7 +239,9 @@ async def get_inventory_activity(business_id: str, limit: int = 50) -> list:
         return []
     try:
         lim = max(1, min(int(limit), 100))
-        rows = redis_conn.list_tail_json(_inventory_activity_key(business_id), lim)
+        rows = await asyncio.to_thread(
+            redis_conn.list_tail_json, _inventory_activity_key(business_id), lim
+        )
         return list(reversed(rows))
     except Exception:
         logger.warning(
