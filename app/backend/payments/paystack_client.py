@@ -3,6 +3,7 @@ Paystack REST helpers (per-vendor secret keys).
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -16,7 +17,7 @@ logger = logging.getLogger(__name__)
 PAYSTACK_REF_REDIS_TTL = 7 * 24 * 3600
 
 
-def persist_paystack_reference(
+async def persist_paystack_reference(
     reference: str,
     user_id: str,
     business_id: str,
@@ -27,7 +28,8 @@ def persist_paystack_reference(
     try:
         from backend.db.cache_utils import redis_conn
 
-        redis_conn._client.setex(
+        await asyncio.to_thread(
+            redis_conn._client.setex,
             f"paystack_ref:{reference}",
             PAYSTACK_REF_REDIS_TTL,
             json.dumps(
