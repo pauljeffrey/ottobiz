@@ -218,6 +218,24 @@ export default function Page() {
     el.scrollTop = el.scrollHeight
   }
 
+  /**
+   * Some browsers auto-scroll the whole page to "help" keep a focused input
+   * visible whenever nearby content changes (e.g. sending a chat message).
+   * That fights the user, who should stay exactly where they were unless they
+   * scroll themselves — snapshot + restore window scroll across the next
+   * couple of render/layout passes to cancel that out.
+   */
+  const holdScrollPosition = () => {
+    const y = window.scrollY
+    const restore = () => {
+      if (window.scrollY !== y) window.scrollTo(0, y)
+    }
+    requestAnimationFrame(() => {
+      restore()
+      requestAnimationFrame(restore)
+    })
+  }
+
   useEffect(() => {
     scrollChatPane(customerChatScrollRef)
   }, [customerMessages, isCustomerLoading])
@@ -984,9 +1002,11 @@ export default function Page() {
                   type="text"
                   value={customerInput}
                   onChange={(e) => setCustomerInput(e.target.value)}
+                  onFocus={holdScrollPosition}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault()
+                      holdScrollPosition()
                       void handleCustomerSend()
                     }
                   }}
@@ -1057,9 +1077,11 @@ export default function Page() {
                     type="text"
                   value={businessInput}
                   onChange={(e) => setBusinessInput(e.target.value)}
+                  onFocus={holdScrollPosition}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault()
+                      holdScrollPosition()
                       void handleBusinessSend()
                     }
                   }}
@@ -1116,9 +1138,11 @@ export default function Page() {
                   type="text"
                   value={logisticsInput}
                   onChange={(e) => setLogisticsInput(e.target.value)}
+                  onFocus={holdScrollPosition}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault()
+                      holdScrollPosition()
                       void handleLogisticsSend()
                     }
                   }}
@@ -1135,7 +1159,6 @@ export default function Page() {
                 </button>
               </div>
             </div>
-          </div>
           </div>
           </div>
 
@@ -1303,6 +1326,7 @@ export default function Page() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden flex flex-col min-h-0">
                   <div className="flex items-stretch shrink-0 border-b border-gray-100 bg-gray-50">
                     <div className="flex-1 flex items-center px-3 py-2 text-sm font-medium text-gray-800 text-left min-w-0">
                       <span className="truncate">Products discussed (session)</span>
