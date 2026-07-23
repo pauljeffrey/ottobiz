@@ -3,7 +3,12 @@ uvicorn==0.30.1
 fastapi==0.111.0
 
 # AI/ML Libraries
-pydantic-ai-slim[google,anthropic,openai,openrouter,logfire]>=1.73.0
+# Pinned exactly: an unpinned `>=` here let Dokploy and local resolve to different
+# versions on separate builds, and older releases used a different internal
+# module layout for the Google/Gemini model class — which broke OpenRouter-style
+# "provider/model" routing (e.g. "google/gemma-4-31b-it" landing in the native
+# Gemini client instead of OpenRouter, 404ing against Google's API).
+pydantic-ai-slim[google,anthropic,openai,openrouter,logfire]==2.1.0
 pydantic>=2.7.4
 
 # Database
