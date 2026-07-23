@@ -28,6 +28,7 @@ from backend.payments.paystack_client import (
     initialize_transaction,
     persist_paystack_reference,
 )
+from backend.payments.demo_override import get_override as get_demo_payment_override
 from backend.modules.products import get_product_images, get_products_by_business
 from backend.struct import Customer, EntityType, Product, TaskType, Vendor
 
@@ -121,6 +122,13 @@ async def fetch_payment_link(
     amount: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Create a Paystack payment page for this vendor. Returns payment_url, reference, and ok flag; on failure ok=false."""
+    if await get_demo_payment_override(ctx.deps.user_id):
+        return {
+            "ok": False,
+            "payment_url": None,
+            "reference": None,
+            "message": "Online checkout is disabled in demo mode. Use bank transfer details instead.",
+        }
     user_state = await get_user_state(ctx.deps.user_id, ctx.deps.business_id) or {}
     biz = user_state.get("business_information") or {}
     secret = (biz.get("paystack_secret_key") or "").strip()
@@ -207,6 +215,15 @@ async def get_business_payment_info(
     ctx: RunContext[ProductAgentDeps],
 ) -> Dict[str, str]:
     """Get business payment information (bank account details)"""
+    override = await get_demo_payment_override(ctx.deps.user_id)
+    if override:
+        return {
+            "bank_name": override.get("bank_name", ""),
+            "bank_account_number": override.get("bank_account_number", ""),
+            "bank_account_name": override.get("bank_account_name", ""),
+            "paystack_public_key": "",
+        }
+
     user_state = await get_user_state(ctx.deps.user_id, ctx.deps.business_id) or {}
     business_info = user_state.get("business_information", {})
 
@@ -330,19 +347,27 @@ async def run_product_agent(
     chat_history = user_state.get("chat_history", [])
 
     # Build dynamic system prompt with business account details
+    # Demo mode: a visitor-supplied account (see payments/demo_override.py) takes
+    # priority over the vendor's real bank details, and disables the real
+    # Paystack link — see fetch_payment_link — so no real money can move.
+    demo_override = await get_demo_payment_override(user_id)
+    payment_source = demo_override or business_info
     dynamic_prompt = ""
-    if business_info:
+    if payment_source:
         bank_details = []
-        if business_info.get("bank_name"):
-            bank_details.append(f"Bank Name: {business_info.get('bank_name')}")
-        if business_info.get("bank_account_name"):
-            bank_details.append(f"Account Name: {business_info.get('bank_account_name')}")
-        if business_info.get("bank_account_number"):
-            bank_details.append(f"Account Number: {business_info.get('bank_account_number')}")
+        if payment_source.get("bank_name"):
+            bank_details.append(f"Bank Name: {payment_source.get('bank_name')}")
+        if payment_source.get("bank_account_name"):
+            bank_details.append(f"Account Name: {payment_source.get('bank_account_name')}")
+        if payment_source.get("bank_account_number"):
+            bank_details.append(f"Account Number: {payment_source.get('bank_account_number')}")
 
         if bank_details:
             dynamic_prompt = "\n\n**Business Payment Details:**\n" + "\n".join(bank_details)
-            dynamic_prompt += "\n\nIf payment link is not available, provide these bank details for bank transfer."
+            if demo_override:
+                dynamic_prompt += "\n\nThis is demo mode: only bank transfer to this account is available (no payment link)."
+            else:
+                dynamic_prompt += "\n\nIf payment link is not available, provide these bank details for bank transfer."
 
     proc = get_process_snapshot(user_state, process_id)
     if proc and (not product_name or product_name.strip().upper() == "NONE") and proc.get("product_name"):

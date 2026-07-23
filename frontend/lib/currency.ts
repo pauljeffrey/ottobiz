@@ -65,6 +65,10 @@ export function rewriteTextCurrency(text: string, toCode: CurrencyCode): string 
   out = out.replace(/\bNGN\s*([\d,]+(?:\.\d{1,2})?)/gi, (_, num) =>
     formatAmount(parseMoneyNumber(num), "NGN", toCode),
   )
+  // Model sometimes writes the code *after* the number ("842.00 NGN") instead of before.
+  out = out.replace(/\b([\d,]+(?:\.\d{1,2})?)\s*NGN\b/gi, (_, num) =>
+    formatAmount(parseMoneyNumber(num), "NGN", toCode),
+  )
   out = out.replace(/\b([\d,]+(?:\.\d{1,2})?)\s*naira\b/gi, (_, num) =>
     formatAmount(parseMoneyNumber(num), "NGN", toCode),
   )

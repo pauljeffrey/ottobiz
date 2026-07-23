@@ -1,17 +1,40 @@
 """
 Main FastAPI application for Ottobiz
 """
+import logging
+import os
+import sys
+
+# Configure logging FIRST, before any other import — several modules
+# (backend/whatsapp/utils.py, backend/logging_config.py) call
+# logging.basicConfig() themselves at import time, and basicConfig() is a
+# silent no-op once the root logger already has a handler. Whichever call
+# wins that race previously left `logger.exception(...)` calls (e.g.
+# customer.py's "customer_chat failed") writing only to a file inside the
+# container's ephemeral filesystem — invisible to `docker logs` / any
+# platform's log viewer (Dokploy, etc). `force=True` + a stdout handler here
+# guarantees errors are always visible via container logs, regardless of
+# import order.
+LOG_FILE = os.getenv("LOG_FILE", "").strip()
+_log_handlers = [logging.StreamHandler(sys.stdout)]
+if LOG_FILE:
+    _log_handlers.append(logging.FileHandler(LOG_FILE))
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s | %(message)s",
+    handlers=_log_handlers,
+    force=True,
+)
+
 import asyncio
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
-import logging
-import os
 
 # Import routers
-from backend.api.routers import customer, business, logistics, analytics, inventory, supply_chain, session, payments
+from backend.api.routers import customer, business, logistics, analytics, inventory, supply_chain, session, payments, demo
 from backend.whatsapp.routers import router as whatsapp_router
 
 # Import legacy endpoints for backward compatibility
@@ -33,13 +56,6 @@ except ImportError:
     DB_AVAILABLE = False
     populate_db_on_startup = None
     print("Warning: Database connection module not available")
-
-LOG_FILE = os.getenv("LOG_FILE", "app.log")
-logging.basicConfig(
-    filename=LOG_FILE,
-    level=logging.WARNING,
-    format='%(asctime)s [%(levelname)s]: %(message)s'
-)
 
 # Create FastAPI app
 app = FastAPI(
@@ -122,6 +138,7 @@ app.include_router(inventory.router, prefix="/api/v1")
 app.include_router(supply_chain.router, prefix="/api/v1")
 app.include_router(session.router, prefix="/api/v1")
 app.include_router(payments.router, prefix="/api/v1")
+app.include_router(demo.router, prefix="/api/v1")  # demo-only payment simulation; safe to remove for prod
 app.include_router(whatsapp_router, prefix="/whatsapp")
 
 # Mount static files for uploads

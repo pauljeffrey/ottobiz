@@ -24,7 +24,6 @@ APP_SECRET = os.getenv("APP_SECRET", "")
 PAGE_ACCESS_TOKEN = os.getenv("PAGE_ACCESS_TOKEN", "") or config.WHATSAPP_API_KEY
 PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID", "") or config.WHATSAPP_PHONE_NUMBER_ID
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 

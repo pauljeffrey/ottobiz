@@ -38,6 +38,7 @@ import {
   ChevronRight,
   RefreshCw,
   Coins,
+  Landmark,
 } from "lucide-react"
 
 const TRANSPARENCY_POLL_MS = 4000
@@ -180,6 +181,99 @@ export default function Page() {
   }, [selectedCurrency])
 
   const [sbInventoryActivityOpen, setSbInventoryActivityOpen] = useState(true)
+
+  // Demo payment simulation: lets a visitor register their own bank account so
+  // vendor/logistics agents quote that instead of the vendor's real account —
+  // "paying" just means sending money to yourself. Backend-gated; see
+  // backend/payments/demo_override.py.
+  const [showPaymentSim, setShowPaymentSim] = useState(false)
+  const [simBankName, setSimBankName] = useState("")
+  const [simAccountNumber, setSimAccountNumber] = useState("")
+  const [simAccountName, setSimAccountName] = useState("")
+  const [simSavedAccount, setSimSavedAccount] = useState<{
+    bank_name: string
+    bank_account_number: string
+    bank_account_name: string
+  } | null>(null)
+  const [simStatus, setSimStatus] = useState("")
+
+  useEffect(() => {
+    if (!selectedUser) {
+      setSimSavedAccount(null)
+      setSimBankName("")
+      setSimAccountNumber("")
+      setSimAccountName("")
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/demo/payment-account/${selectedUser.id}`)
+        if (!res.ok || cancelled) return
+        const data = await res.json()
+        const account = data?.account ?? null
+        if (cancelled) return
+        setSimSavedAccount(account)
+        setSimBankName(account?.bank_name ?? "")
+        setSimAccountNumber(account?.bank_account_number ?? "")
+        setSimAccountName(account?.bank_account_name ?? "")
+      } catch {
+        // best-effort; leave fields as-is
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [selectedUser])
+
+  const handleSavePaymentSim = async () => {
+    if (!selectedUser) return
+    if (!simBankName.trim() || !simAccountNumber.trim() || !simAccountName.trim()) {
+      setSimStatus("All three fields are required.")
+      return
+    }
+    setSimStatus("Saving…")
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/demo/payment-account`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: selectedUser.id,
+          bank_name: simBankName,
+          bank_account_number: simAccountNumber,
+          bank_account_name: simAccountName,
+        }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      setSimSavedAccount({
+        bank_name: simBankName,
+        bank_account_number: simAccountNumber,
+        bank_account_name: simAccountName,
+      })
+      setSimStatus("Saved — agents will quote this account instead of the vendor's.")
+    } catch (error) {
+      setSimStatus(`Could not save: ${error instanceof Error ? error.message : "Unknown error"}`)
+    }
+  }
+
+  const handleClearPaymentSim = async () => {
+    if (!selectedUser) return
+    setSimStatus("Clearing…")
+    try {
+      await fetch(`${API_BASE}/api/v1/demo/payment-account/clear`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: selectedUser.id }),
+      })
+      setSimSavedAccount(null)
+      setSimBankName("")
+      setSimAccountNumber("")
+      setSimAccountName("")
+      setSimStatus("Cleared — agents will go back to quoting the vendor's real account.")
+    } catch (error) {
+      setSimStatus(`Could not clear: ${error instanceof Error ? error.message : "Unknown error"}`)
+    }
+  }
 
   const {
     topProducts,
@@ -809,8 +903,80 @@ export default function Page() {
                   />
                 </div>
               </div>
+
+              {/* Demo payment simulation toggle */}
+              <button
+                type="button"
+                onClick={() => setShowPaymentSim((v) => !v)}
+                disabled={!selectedUser}
+                title="Register your own bank account so vendor/logistics agents quote it instead of the real one — no real money ever needs to move"
+                className={`flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                  simSavedAccount
+                    ? "border-emerald-300 bg-emerald-50 text-emerald-900 hover:bg-emerald-100"
+                    : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+                }`}
+              >
+                <Landmark className="w-4 h-4" />
+                {simSavedAccount ? "Simulated payment: on" : "Simulate payment"}
+              </button>
             </div>
           </div>
+
+          {showPaymentSim && (
+            <div className="max-w-7xl mx-auto mt-3 bg-white rounded-lg border border-gray-200 p-4">
+              <h4 className="text-sm font-semibold text-gray-800 mb-1">Simulate payment with your own account</h4>
+              <p className="text-xs text-gray-500 mb-3">
+                Optional. Enter a bank account you control for the selected user persona ({selectedUser?.name ?? "select a user first"}).
+                Vendor and logistics agents will quote this account instead of the vendor&apos;s real one, and the online
+                checkout link is disabled — so &quot;paying&quot; just means sending money to yourself, with zero risk to anyone else.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <input
+                  type="text"
+                  value={simBankName}
+                  onChange={(e) => setSimBankName(e.target.value)}
+                  placeholder="Bank name"
+                  disabled={!selectedUser}
+                  className="border rounded px-3 py-2 text-sm disabled:opacity-50"
+                />
+                <input
+                  type="text"
+                  value={simAccountNumber}
+                  onChange={(e) => setSimAccountNumber(e.target.value)}
+                  placeholder="Account number"
+                  disabled={!selectedUser}
+                  className="border rounded px-3 py-2 text-sm disabled:opacity-50"
+                />
+                <input
+                  type="text"
+                  value={simAccountName}
+                  onChange={(e) => setSimAccountName(e.target.value)}
+                  placeholder="Account holder name"
+                  disabled={!selectedUser}
+                  className="border rounded px-3 py-2 text-sm disabled:opacity-50"
+                />
+              </div>
+              <div className="flex items-center gap-2 mt-3">
+                <button
+                  type="button"
+                  onClick={handleSavePaymentSim}
+                  disabled={!selectedUser}
+                  className="px-3 py-2 text-sm font-medium rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClearPaymentSim}
+                  disabled={!selectedUser || !simSavedAccount}
+                  className="px-3 py-2 text-sm font-medium rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Clear
+                </button>
+                {simStatus && <span className="text-xs text-gray-500">{simStatus}</span>}
+              </div>
+            </div>
+          )}
         </div>
       </header>
 
